@@ -28,7 +28,11 @@ const headers = INITDATA
   ? { "X-TG-INITDATA": INITDATA }
   : { "X-ADMIN-SECRET": "change_me" }; // dev-only: set same as ADMIN_SECRET in .env
 
-const API_BASE = (window.__API_BASE__ || "").replace(/\/$/, "");
+const API_BASE = (
+  window.__API_BASE__ ||
+  (location.hostname.endsWith("github.io") ? "https://pixel-field-backend.onrender.com" : "") ||
+  ""
+).replace(/\/$/, "");
 
 let mapW = 2000;
 let mapH = 2000;
