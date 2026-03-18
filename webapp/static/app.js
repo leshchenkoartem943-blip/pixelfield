@@ -13,7 +13,6 @@ const statsEl = document.getElementById("stats");
 const btnRecenter = document.getElementById("btnRecenter");
 const btnShop = document.getElementById("btnShop");
 const btnLoot = document.getElementById("btnLoot");
-const btnRound = document.getElementById("btnRound");
 const btnProfile = document.getElementById("btnProfile");
 
 const panel = document.getElementById("panel");
@@ -56,12 +55,14 @@ let dragMoved = false;
 let dragStart = { x: 0, y: 0 };
 let suppressClickUntil = 0;
 let actionInFlight = false;
-const ROUND_DIAMETER_PX = 170;
+const ROUND_DIAMETER_TILES = 12;
 
-btnRound.onclick = () => {
-  roundMask = !roundMask;
-  render();
-};
+function arenaRadiusPx() {
+  const w = canvas.clientWidth;
+  const h = canvas.clientHeight;
+  const rByZoom = (ROUND_DIAMETER_TILES * zoom) / 2;
+  return Math.min(rByZoom, Math.min(w, h) / 2);
+}
 
 function setToast(msg) {
   toast = msg;
@@ -71,7 +72,7 @@ function setToast(msg) {
 function inRoundArena(sx, sy) {
   const w = canvas.clientWidth;
   const h = canvas.clientHeight;
-  const r = Math.min(ROUND_DIAMETER_PX, Math.min(w, h)) / 2;
+  const r = arenaRadiusPx();
   const dx = sx - w / 2;
   const dy = sy - h / 2;
   return (dx * dx + dy * dy) <= (r * r);
@@ -546,7 +547,7 @@ function render(timeNow = performance.now()) {
   if (roundMask) {
     // clip to circle
     ctx.save();
-    const r = Math.min(ROUND_DIAMETER_PX, Math.min(w, h)) / 2;
+    const r = arenaRadiusPx();
     ctx.beginPath();
     ctx.arc(w / 2, h / 2, r, 0, Math.PI * 2);
     ctx.clip();
@@ -611,7 +612,7 @@ function render(timeNow = performance.now()) {
   if (roundMask) {
     // darken outside circle
     ctx.restore();
-    const r = Math.min(ROUND_DIAMETER_PX, Math.min(w, h)) / 2;
+    const r = arenaRadiusPx();
     ctx.fillStyle = "rgba(0,0,0,0.55)";
     ctx.beginPath();
     ctx.rect(0, 0, w, h);
