@@ -1,0 +1,35 @@
+<!doctype html>
+<html lang="ru">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+    <title>Pixel Field</title>
+    <link rel="stylesheet" href="/webapp/static/style.css" />
+    <script src="https://telegram.org/js/telegram-web-app.js"></script>
+  </head>
+  <body>
+    <div id="topbar">
+      <div class="title">Pixel Field</div>
+      <div id="stats" class="stats">...</div>
+      <button id="btnProfile" class="btn">Профиль</button>
+      <button id="btnShop" class="btn">Магазин</button>
+      <button id="btnLoot" class="btn">Лут</button>
+      <button id="btnRound" class="btn">Круг</button>
+      <button id="btnRecenter" class="btn">К себе</button>
+    </div>
+
+    <canvas id="c"></canvas>
+    <canvas id="mini"></canvas>
+
+    <div id="panel" class="panel hidden">
+      <div class="panelHeader">
+        <div id="panelTitle" class="panelTitle">Панель</div>
+        <button id="btnClose" class="btn">Закрыть</button>
+      </div>
+      <div id="panelBody" class="panelBody"></div>
+    </div>
+
+    <script type="module" src="/webapp/static/app.js?v=5"></script>
+  </body>
+</html>
+
