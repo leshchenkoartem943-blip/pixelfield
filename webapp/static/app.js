@@ -118,8 +118,14 @@ btnProfile.onclick = async () => {
       try {
         await apiPost("/api/cosmetics/equip", { cosmetic_id: it.id });
         div.querySelector(".muted").textContent = "Экипировано!";
-        // force fresh colors after multiple switches
+        // жёсткий сброс: перезагружаем все тайлы с сервера
         tiles.clear();
+        const miniData = await apiGet("/api/game/minimap");
+        mapW = miniData.map.w;
+        mapH = miniData.map.h;
+        for (const t of miniData.tiles) {
+          tiles.set(key(t.x, t.y), { c: t.c, o: t.o });
+        }
         await fetchState();
         await fetchMinimap();
         render();
