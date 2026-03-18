@@ -337,30 +337,45 @@ function drawStyledTile(sx, sy, size, styleStr, x, y, timeSec) {
   }
   if (style === "magma" || style === "magma_sparks") {
     const n = hash2(x, y);
-    const hot = Math.pow(n, 0.35);
-    const base = shade(color, 0.55);
-    const hotc = "#ff6a00";
-    const g = ctx.createRadialGradient(sx + size * 0.5, sy + size * 0.5, size * 0.1, sx + size * 0.5, sy + size * 0.5, size * 0.75);
-    g.addColorStop(0, hot > 0.6 ? "#ffd000" : hotc);
+    const pulse = Math.sin(timeSec * 1.8 + n * 4.0) * 0.5 + 0.5; // 0..1
+    const base = shade(color, 0.7);
+    const hotInner = mix("#ffd44a", "#ffffff", 0.3);
+    const g = ctx.createRadialGradient(
+      sx + size * 0.5,
+      sy + size * 0.5,
+      size * 0.1,
+      sx + size * 0.5,
+      sy + size * 0.5,
+      size * 0.75
+    );
+    g.addColorStop(0, shade(hotInner, 0.9 + 0.4 * pulse));
     g.addColorStop(1, base);
     ctx.fillStyle = g;
     ctx.fillRect(sx, sy, size, size);
     if (size >= 10) {
-      ctx.strokeStyle = "rgba(0,0,0,0.22)";
+      // тёмная корка
+      ctx.strokeStyle = "rgba(0,0,0,0.35)";
       ctx.strokeRect(sx + 0.5, sy + 0.5, size - 1, size - 1);
     }
     if (style === "magma_sparks" && size >= 10) {
-      // rare sparks
-      const p = hash2(x + Math.floor(timeSec * 3), y + 9);
-      if (p > 0.985) {
-        ctx.fillStyle = "rgba(255,230,120,0.95)";
-        ctx.fillRect(sx + size * (hash2(x, y) * 0.8), sy + size * (hash2(y, x) * 0.8), 2, 2);
+      // редкие искры
+      const p = hash2(x + Math.floor(timeSec * 3), y + 19);
+      if (p > 0.99) {
+        ctx.fillStyle = "rgba(255,245,200,0.95)";
+        ctx.fillRect(
+          sx + size * (hash2(x, y) * 0.7 + 0.15),
+          sy + size * (hash2(y, x) * 0.7 + 0.15),
+          2,
+          2
+        );
       }
-      // cracks
-      ctx.strokeStyle = "rgba(0,0,0,0.18)";
+      // трещины
+      ctx.strokeStyle = "rgba(0,0,0,0.5)";
       ctx.beginPath();
-      ctx.moveTo(sx, sy + size * 0.2);
-      ctx.lineTo(sx + size, sy + size * 0.8);
+      ctx.moveTo(sx + size * 0.1, sy + size * 0.2);
+      ctx.lineTo(sx + size * 0.9, sy + size * 0.8);
+      ctx.moveTo(sx + size * 0.3, sy + size * 0.1);
+      ctx.lineTo(sx + size * 0.7, sy + size * 0.9);
       ctx.stroke();
     }
     return;
@@ -373,13 +388,15 @@ function drawStyledTile(sx, sy, size, styleStr, x, y, timeSec) {
     return;
   }
   if (style === "neon_pulse") {
-    const phase = Math.sin(timeSec * 3.0 + (x + y) * 0.35);
-    const bright = 0.7 + 0.35 * (phase * 0.5 + 0.5);
-    ctx.fillStyle = shade(color, bright);
+    const phase = Math.sin(timeSec * 4.0 + (x + y) * 0.35) * 0.5 + 0.5; // 0..1
+    const core = shade(color, 0.9 + 0.4 * phase);
+    ctx.fillStyle = core;
     ctx.fillRect(sx, sy, size, size);
     if (size >= 10) {
-      ctx.strokeStyle = "rgba(255,255,255,0.18)";
-      ctx.strokeRect(sx + 1, sy + 1, size - 2, size - 2);
+      // неоновый ореол
+      ctx.strokeStyle = `rgba(255,255,255,${0.25 + 0.35 * phase})`;
+      ctx.lineWidth = 1.5;
+      ctx.strokeRect(sx + 0.5, sy + 0.5, size - 1, size - 1);
     }
     return;
   }
@@ -403,18 +420,18 @@ function drawStyledTile(sx, sy, size, styleStr, x, y, timeSec) {
   }
   if (style === "crystal") {
     const n = hash2(x, y);
-    const g = ctx.createLinearGradient(sx, sy, sx + size, sy);
-    g.addColorStop(0, mix(color, "#ffffff", 0.25));
-    g.addColorStop(0.5, mix(color, "#22d3ee", 0.25));
-    g.addColorStop(1, mix(color, "#a855f7", 0.2));
+    const g = ctx.createLinearGradient(sx, sy + size, sx + size, sy);
+    g.addColorStop(0, mix(color, "#ffffff", 0.2));
+    g.addColorStop(1, mix(color, "#22d3ee", 0.35));
     ctx.fillStyle = g;
     ctx.fillRect(sx, sy, size, size);
     if (size >= 10) {
-      ctx.fillStyle = `rgba(255,255,255,${0.10 + 0.25 * n})`;
+      // одна большая грань
+      ctx.fillStyle = `rgba(255,255,255,${0.15 + 0.25 * n})`;
       ctx.beginPath();
-      ctx.moveTo(sx + size * 0.1, sy + size * 0.9);
-      ctx.lineTo(sx + size * 0.6, sy + size * 0.2);
-      ctx.lineTo(sx + size * 0.9, sy + size * 0.6);
+      ctx.moveTo(sx + size * 0.15, sy + size * 0.85);
+      ctx.lineTo(sx + size * 0.55, sy + size * 0.25);
+      ctx.lineTo(sx + size * 0.85, sy + size * 0.65);
       ctx.closePath();
       ctx.fill();
     }
@@ -433,32 +450,56 @@ function drawStyledTile(sx, sy, size, styleStr, x, y, timeSec) {
   }
   if (style === "galaxy") {
     const n = hash2(x, y);
-    const base = mix("#0b1026", color, 0.25);
+    // глубокий космос
+    const base = mix("#020617", color, 0.18);
     ctx.fillStyle = base;
     ctx.fillRect(sx, sy, size, size);
     if (size >= 10) {
-      // stars
-      const s = hash2(x + 17, y + 91);
-      if (s > 0.93) {
-        ctx.fillStyle = "rgba(255,255,255,0.85)";
-        ctx.fillRect(sx + size * (hash2(x, y) * 0.9), sy + size * (hash2(y, x) * 0.9), 1.5, 1.5);
+      // редкие звезды
+      const s1 = hash2(x * 7 + 11, y * 13 + 3);
+      if (s1 > 0.97) {
+        const starSize = 1 + (s1 - 0.97) * 6;
+        ctx.fillStyle = "rgba(255,255,255,0.95)";
+        ctx.fillRect(
+          sx + size * (hash2(x, y) * 0.8 + 0.1),
+          sy + size * (hash2(y, x) * 0.8 + 0.1),
+          starSize,
+          starSize
+        );
       }
-      // nebula glow
-      const glow = Math.max(0, Math.sin(timeSec * 0.6 + (x * 0.2)) * 0.5 + 0.5);
-      ctx.fillStyle = `rgba(168,85,247,${0.05 + glow * 0.10 * n})`;
+      // небольшая цветная туманность
+      const glow = Math.max(0, Math.sin(timeSec * 0.4 + x * 0.12 + y * 0.07) * 0.5 + 0.5);
+      ctx.fillStyle = `rgba(129,140,248,${0.04 + 0.10 * glow * n})`;
+      ctx.fillRect(sx, sy, size, size);
+      ctx.fillStyle = `rgba(45,212,191,${0.03 + 0.08 * (1 - glow) * n})`;
       ctx.fillRect(sx, sy, size, size);
     }
     return;
   }
   if (style === "glitch") {
-    const n = hash2(x + Math.floor(timeSec * 5), y);
-    const c1 = mix(color, "#00d4ff", 0.35);
-    const c2 = mix(color, "#ff2d55", 0.35);
-    ctx.fillStyle = n > 0.5 ? c1 : c2;
+    // базовый фон
+    ctx.fillStyle = color;
     ctx.fillRect(sx, sy, size, size);
-    if (size >= 10 && n > 0.82) {
-      ctx.fillStyle = "rgba(0,0,0,0.25)";
-      ctx.fillRect(sx, sy + size * 0.65, size, size * 0.2);
+    if (size >= 8) {
+      const bands = 3;
+      for (let i = 0; i < bands; i++) {
+        const ny = (i + hash2(x, y + i)) / bands;
+        const h = size / bands * 0.6;
+        const yy = sy + size * ny;
+        const shift = (Math.sin(timeSec * 6 + x * 0.8 + i) * 0.4 + 0.4) * 4;
+        const r = `rgba(255,45,85,0.85)`;
+        const g = `rgba(52,199,89,0.85)`;
+        const b = `rgba(0,122,255,0.85)`;
+        const colors = [r, g, b];
+        ctx.fillStyle = colors[i % 3];
+        ctx.fillRect(sx + shift, yy, size * 0.8, h);
+      }
+      // редкие "обрывы"
+      const n = hash2(x + Math.floor(timeSec * 10), y + 33);
+      if (n > 0.9) {
+        ctx.fillStyle = "rgba(0,0,0,0.4)";
+        ctx.fillRect(sx, sy + size * 0.3, size, size * 0.15);
+      }
     }
     return;
   }
