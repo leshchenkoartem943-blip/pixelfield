@@ -114,10 +114,11 @@ def ensure_user(db: Session, tg_user_id: int, username: str | None, display_name
             user.display_name = display_name[:64]
         return user
 
-    # random identity: thousands of distinct shades (HSL -> hex)
-    hue = random.random()
-    sat = random.uniform(0.65, 0.95)
-    val = random.uniform(0.55, 0.85)
+    # pleasant identity color (deterministic by tg_user_id; thousands of shades)
+    # golden ratio step produces nicely spread hues
+    hue = ((tg_user_id * 0.61803398875) % 1.0)
+    sat = 0.78
+    val = 0.78
     r, g, b = colorsys.hsv_to_rgb(hue, sat, val)
     base_hex = f"#{int(r*255):02x}{int(g*255):02x}{int(b*255):02x}"
 
@@ -396,14 +397,20 @@ def get_shop_catalog() -> dict[str, dict]:
         catalog[cid] = {"kind": "style", "title": f"{title} (перманент)", "price": 0, "payload": name}
 
     colors = [
+        ("#ff3b30", "Красный"),
+        ("#ff9500", "Янтарь"),
+        ("#ffd60a", "Жёлтый"),
+        ("#34c759", "Зелёный"),
+        ("#00c7be", "Тиффани"),
+        ("#0a84ff", "Синий"),
+        ("#5e5ce6", "Индиго"),
+        ("#bf5af2", "Фиолетовый"),
         ("#ff2d55", "Розовый неон"),
-        ("#00d4ff", "Кибер-голубой"),
-        ("#a855f7", "Фиолетовый"),
-        ("#22c55e", "Изумруд"),
-        ("#f97316", "Оранжевый"),
-        ("#ffd000", "Золото"),
-        ("#111827", "Ночной графит"),
-        ("#ffffff", "Белый свет"),
+        ("#64d2ff", "Лёд-голубой"),
+        ("#30d158", "Неон-лайм"),
+        ("#ff9f0a", "Лава-оранжевый"),
+        ("#f2f2f7", "Белый"),
+        ("#1c1c1e", "Графит"),
     ]
     for i, (hx, title) in enumerate(colors, start=1):
         cid = f"color_{i:02d}"

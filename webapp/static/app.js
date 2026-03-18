@@ -52,6 +52,9 @@ let roundMask = true;
 let t0 = performance.now();
 let lastToastAt = 0;
 let toast = "";
+let dragMoved = false;
+let dragStart = { x: 0, y: 0 };
+let suppressClickUntil = 0;
 
 btnRound.onclick = () => {
   roundMask = !roundMask;
@@ -115,6 +118,8 @@ btnProfile.onclick = async () => {
       try {
         await apiPost("/api/cosmetics/equip", { cosmetic_id: it.id });
         div.querySelector(".muted").textContent = "Экипировано!";
+        // force fresh colors after multiple switches
+        tiles.clear();
         await fetchState();
         await fetchMinimap();
         render();
@@ -223,8 +228,19 @@ function parseStyle(s) {
   // "style:#rrggbb"
   if (!s || typeof s !== "string") return { style: "solid", color: "#44ccff" };
   const parts = s.split(":");
-  if (parts.length >= 2) return { style: parts[0], color: parts[1] };
-  return { style: "solid", color: s };
+  const raw = parts.length >= 2 ? parts[1] : s;
+  let color = raw;
+  if (typeof color === "string") {
+    if (/^#?[0-9a-fA-F]{3}$/.test(color)) {
+      const h = color.replace("#", "");
+      color = `#${h[0]}${h[0]}${h[1]}${h[1]}${h[2]}${h[2]}`;
+    }
+    if (/^[0-9a-fA-F]{6}$/.test(color)) color = `#${color}`;
+    if (!/^#[0-9a-fA-F]{6}$/.test(color)) color = "#44ccff";
+    color = color.toLowerCase();
+  }
+  if (parts.length >= 2) return { style: parts[0], color };
+  return { style: "solid", color };
 }
 
 function hash2(x, y) {
@@ -284,7 +300,10 @@ function hsvToHex(h, s, v) {
 function drawStyledTile(sx, sy, size, styleStr, x, y, timeSec) {
   const { style, color } = parseStyle(styleStr);
   if (style === "solid") {
-    ctx.fillStyle = color;
+    // subtle texture so solids look less "flat"
+    const n = hash2(x, y);
+    const f = 0.92 + n * 0.12;
+    ctx.fillStyle = shade(color, f);
     ctx.fillRect(sx, sy, size, size);
     return;
   }
@@ -619,15 +638,23 @@ function animate(now) {
 canvas.addEventListener("mousedown", (e) => {
   dragging = true;
   lastMouse = { x: e.clientX, y: e.clientY };
+  dragStart = { x: e.clientX, y: e.clientY };
+  dragMoved = false;
 });
 window.addEventListener("mouseup", () => {
   dragging = false;
+  if (dragMoved) suppressClickUntil = performance.now() + 250;
 });
 window.addEventListener("mousemove", (e) => {
   if (!dragging) return;
   const dx = e.clientX - lastMouse.x;
   const dy = e.clientY - lastMouse.y;
   lastMouse = { x: e.clientX, y: e.clientY };
+  if (!dragMoved) {
+    const ddx = e.clientX - dragStart.x;
+    const ddy = e.clientY - dragStart.y;
+    if ((ddx * ddx + ddy * ddy) > (6 * 6)) dragMoved = true;
+  }
   offsetX += dx;
   offsetY += dy;
   fetchState().then(render).catch(() => render());
@@ -635,6 +662,7 @@ window.addEventListener("mousemove", (e) => {
 
 canvas.addEventListener("wheel", (e) => {
   e.preventDefault();
+  suppressClickUntil = performance.now() + 200;
   const oldZoom = zoom;
   const delta = Math.sign(e.deltaY);
   zoom = clamp(zoom + (delta > 0 ? -1 : 1), 6, 32);
@@ -651,6 +679,7 @@ canvas.addEventListener("wheel", (e) => {
 
 canvas.addEventListener("click", async (e) => {
   if (dragging) return;
+  if (performance.now() < suppressClickUntil) return;
   const rect = canvas.getBoundingClientRect();
   const sx = e.clientX - rect.left;
   const sy = e.clientY - rect.top;
