@@ -33,6 +33,13 @@ def map_center() -> tuple[int, int]:
     return settings.map_width // 2, settings.map_height // 2
 
 
+def in_arena(x: int, y: int) -> bool:
+    cx, cy = map_center()
+    dx = x - cx
+    dy = y - cy
+    return dx * dx + dy * dy <= settings.arena_radius_tiles * settings.arena_radius_tiles
+
+
 def distance_to_center(x: int, y: int) -> float:
     cx, cy = map_center()
     return math.sqrt((x - cx) ** 2 + (y - cy) ** 2)
@@ -52,15 +59,27 @@ def loot_chance_for_position(x: int, y: int) -> float:
 
 
 def random_spawn_edge() -> tuple[int, int]:
-    w, h = settings.map_width, settings.map_height
-    side = random.randint(0, 3)
-    if side == 0:  # top
-        return random.randint(0, w - 1), 0
-    if side == 1:  # bottom
-        return random.randint(0, w - 1), h - 1
-    if side == 2:  # left
-        return 0, random.randint(0, h - 1)
-    return w - 1, random.randint(0, h - 1)
+    # Spawn on the circular arena boundary, randomly by angle.
+    cx, cy = map_center()
+    r = settings.arena_radius_tiles
+    ang = random.random() * math.tau
+    x = int(round(cx + r * math.cos(ang)))
+    y = int(round(cy + r * math.sin(ang)))
+    x = clamp(x, 0, settings.map_width - 1)
+    y = clamp(y, 0, settings.map_height - 1)
+    if in_arena(x, y):
+        return x, y
+    # If rounding put us outside, step inward a bit.
+    for _ in range(8):
+        dx = x - cx
+        dy = y - cy
+        x = int(round(x - (1 if dx > 0 else -1 if dx < 0 else 0)))
+        y = int(round(y - (1 if dy > 0 else -1 if dy < 0 else 0)))
+        x = clamp(x, 0, settings.map_width - 1)
+        y = clamp(y, 0, settings.map_height - 1)
+        if in_arena(x, y):
+            return x, y
+    return cx, cy
 
 
 def cleanup_expired_boosts(db: Session, user: User) -> None:
@@ -177,6 +196,8 @@ def move_user(db: Session, user: User, dx: int, dy: int) -> None:
         raise ValueError("move_cooldown")
     nx = clamp(user.pos_x + dx, 0, settings.map_width - 1)
     ny = clamp(user.pos_y + dy, 0, settings.map_height - 1)
+    if not in_arena(nx, ny):
+        raise ValueError("out_of_arena")
     user.pos_x = nx
     user.pos_y = ny
     user.last_move_at = now_utc()
@@ -189,6 +210,8 @@ def paint_tile(db: Session, user: User, x: int, y: int, color: str) -> dict:
 
     x = clamp(x, 0, settings.map_width - 1)
     y = clamp(y, 0, settings.map_height - 1)
+    if not in_arena(x, y):
+        raise ValueError("out_of_arena")
 
     if manhattan(user.pos_x, user.pos_y, x, y) > stats.paint_range:
         raise ValueError("too_far")

@@ -17,6 +17,7 @@ from backend.game import (
     equip_cosmetic,
     get_shop_catalog,
     list_inventory,
+    in_arena,
     move_user,
     open_loot,
     paint_tile,
@@ -159,12 +160,14 @@ def api_state(
         .limit(50000)
         .all()
     )
+    tiles = [t for t in tiles if in_arena(t.x, t.y)]
     players = (
         db.query(User)
         .filter(User.pos_x >= x0, User.pos_x <= x1, User.pos_y >= y0, User.pos_y <= y1)
         .limit(200)
         .all()
     )
+    players = [p for p in players if in_arena(p.pos_x, p.pos_y)]
     return {
         "map": {"w": settings.map_width, "h": settings.map_height},
         "me": {"x": user.pos_x, "y": user.pos_y, "id": user.id},
@@ -190,12 +193,15 @@ def api_minimap(user: User = Depends(get_current_user), db: Session = Depends(ge
         .filter(Tile.x >= 0, Tile.x < settings.map_width, Tile.y >= 0, Tile.y < settings.map_height)
         .all()
     )
+    tiles = [t for t in tiles if in_arena(t.x, t.y)]
+
     players = (
         db.query(User)
         .filter(User.pos_x >= 0, User.pos_x < settings.map_width, User.pos_y >= 0, User.pos_y < settings.map_height)
         .limit(500)
         .all()
     )
+    players = [p for p in players if in_arena(p.pos_x, p.pos_y)]
     return {
         "map": {"w": settings.map_width, "h": settings.map_height},
         "tiles": [{"x": t.x, "y": t.y, "c": t.color, "o": t.owner_user_id} for t in tiles],

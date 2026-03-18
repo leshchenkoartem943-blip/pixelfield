@@ -52,7 +52,7 @@ let offsetX = 0;
 let offsetY = 0;
 let dragging = false;
 let lastMouse = { x: 0, y: 0 };
-let roundMask = true;
+let roundMask = false; // больше не маскируем вьюпорт; форма мира круглая
 let t0 = performance.now();
 let lastToastAt = 0;
 let toast = "";
@@ -81,6 +81,15 @@ function inRoundArena(sx, sy) {
   const dx = sx - w / 2;
   const dy = sy - h / 2;
   return (dx * dx + dy * dy) <= (r * r);
+}
+
+function inWorldTile(tx, ty) {
+  const cx = Math.floor(mapW / 2);
+  const cy = Math.floor(mapH / 2);
+  const r = Math.floor(Math.min(mapW, mapH) / 2) - 1;
+  const dx = tx - cx;
+  const dy = ty - cy;
+  return dx * dx + dy * dy <= r * r;
 }
 
 btnProfile.onclick = async () => {
@@ -567,14 +576,16 @@ function render(timeNow = performance.now()) {
         drawStyledTile(sx, sy, zoom, it.c || "#44ccff", x, y, timeSec);
       } else {
         // small noise for "pixel field" vibe
-        ctx.fillStyle = (x + y) % 17 === 0 ? "#0a1020" : "#080d18";
-        ctx.fillRect(sx, sy, zoom, zoom);
+        if (inWorldTile(x, y)) {
+          ctx.fillStyle = (x + y) % 17 === 0 ? "#0a1020" : "#080d18";
+          ctx.fillRect(sx, sy, zoom, zoom);
+        }
       }
     }
   }
 
-  // grid lines (only if zoom is large)
-  if (zoom >= 12) {
+  // grid lines (чтобы не “рисовать” квадрат мира, отключаем)
+  if (false && zoom >= 12) {
     ctx.strokeStyle = "rgba(154,176,208,0.08)";
     ctx.lineWidth = 1;
     for (let x = x0; x <= x1; x++) {
@@ -644,12 +655,14 @@ async function fetchMinimap() {
   const ch = h / data.map.h;
 
   for (const t of data.tiles) {
+    if (!inWorldTile(t.x, t.y)) continue;
     const { color } = parseStyle(t.c);
     mctx.fillStyle = color;
     mctx.fillRect(t.x * cw, t.y * ch, Math.max(1, cw), Math.max(1, ch));
   }
 
   for (const p of data.players) {
+    if (!inWorldTile(p.x, p.y)) continue;
     const { color } = parseStyle(p.style);
     mctx.fillStyle = color;
     mctx.fillRect(p.x * cw, p.y * ch, Math.max(2, cw), Math.max(2, ch));
@@ -744,8 +757,12 @@ canvas.addEventListener("click", async (e) => {
   const rect = canvas.getBoundingClientRect();
   const sx = e.clientX - rect.left;
   const sy = e.clientY - rect.top;
-  if (roundMask && !inRoundArena(sx, sy)) return;
   const t = screenToTile(sx, sy);
+  if (!inWorldTile(t.x, t.y)) {
+    setToast("вне карты");
+    updateStats();
+    return;
+  }
   // New behavior:
   // - if near (manhattan=1) -> paint clicked
   // - if far -> step 1 toward target and paint that step tile
@@ -789,6 +806,7 @@ canvas.addEventListener("click", async (e) => {
     }
     if (msg.includes("move_cooldown")) setToast("кулдаун движения");
     else if (msg.includes("too_far")) setToast("слишком далеко");
+    else if (msg.includes("out_of_arena")) setToast("за пределами карты");
     else setToast("ошибка");
     updateStats();
   } finally {

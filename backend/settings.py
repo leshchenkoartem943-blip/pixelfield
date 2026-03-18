@@ -16,6 +16,8 @@ class Settings(BaseSettings):
     map_width: int = 150
     map_height: int = 150
     center_loot_radius: int = 27
+    # Playable world is a circle inscribed into the square map.
+    arena_radius_tiles: int = 74
 
     base_tile_reward_coins: int = 1
     base_tile_reward_score: int = 1
