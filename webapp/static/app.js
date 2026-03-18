@@ -15,6 +15,11 @@ const btnShop = document.getElementById("btnShop");
 const btnLoot = document.getElementById("btnLoot");
 const btnProfile = document.getElementById("btnProfile");
 
+// If Telegram/WebView cached old HTML that still had the "Круг" button,
+// remove it to keep a fixed circular arena layout.
+const btnRoundEl = document.getElementById("btnRound");
+if (btnRoundEl) btnRoundEl.remove();
+
 const panel = document.getElementById("panel");
 const panelTitle = document.getElementById("panelTitle");
 const panelBody = document.getElementById("panelBody");
