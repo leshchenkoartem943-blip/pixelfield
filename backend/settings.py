@@ -13,9 +13,9 @@ class Settings(BaseSettings):
     admin_secret: str = "change_me"
 
     # Game config
-    map_width: int = 300
-    map_height: int = 300
-    center_loot_radius: int = 55
+    map_width: int = 150
+    map_height: int = 150
+    center_loot_radius: int = 27
 
     base_tile_reward_coins: int = 1
     base_tile_reward_score: int = 1

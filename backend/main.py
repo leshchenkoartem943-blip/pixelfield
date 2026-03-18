@@ -185,8 +185,17 @@ def api_state(
 
 @app.get("/api/game/minimap")
 def api_minimap(user: User = Depends(get_current_user), db: Session = Depends(get_db)):
-    tiles = db.query(Tile).all()
-    players = db.query(User).limit(500).all()
+    tiles = (
+        db.query(Tile)
+        .filter(Tile.x >= 0, Tile.x < settings.map_width, Tile.y >= 0, Tile.y < settings.map_height)
+        .all()
+    )
+    players = (
+        db.query(User)
+        .filter(User.pos_x >= 0, User.pos_x < settings.map_width, User.pos_y >= 0, User.pos_y < settings.map_height)
+        .limit(500)
+        .all()
+    )
     return {
         "map": {"w": settings.map_width, "h": settings.map_height},
         "tiles": [{"x": t.x, "y": t.y, "c": t.color, "o": t.owner_user_id} for t in tiles],

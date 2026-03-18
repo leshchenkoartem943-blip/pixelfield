@@ -55,6 +55,8 @@ let toast = "";
 let dragMoved = false;
 let dragStart = { x: 0, y: 0 };
 let suppressClickUntil = 0;
+let actionInFlight = false;
+const ROUND_DIAMETER_PX = 170;
 
 btnRound.onclick = () => {
   roundMask = !roundMask;
@@ -69,7 +71,7 @@ function setToast(msg) {
 function inRoundArena(sx, sy) {
   const w = canvas.clientWidth;
   const h = canvas.clientHeight;
-  const r = Math.min(w, h) * 0.48;
+  const r = Math.min(ROUND_DIAMETER_PX, Math.min(w, h)) / 2;
   const dx = sx - w / 2;
   const dy = sy - h / 2;
   return (dx * dx + dy * dy) <= (r * r);
@@ -544,7 +546,7 @@ function render(timeNow = performance.now()) {
   if (roundMask) {
     // clip to circle
     ctx.save();
-    const r = Math.min(w, h) * 0.48;
+    const r = Math.min(ROUND_DIAMETER_PX, Math.min(w, h)) / 2;
     ctx.beginPath();
     ctx.arc(w / 2, h / 2, r, 0, Math.PI * 2);
     ctx.clip();
@@ -609,7 +611,7 @@ function render(timeNow = performance.now()) {
   if (roundMask) {
     // darken outside circle
     ctx.restore();
-    const r = Math.min(w, h) * 0.48;
+    const r = Math.min(ROUND_DIAMETER_PX, Math.min(w, h)) / 2;
     ctx.fillStyle = "rgba(0,0,0,0.55)";
     ctx.beginPath();
     ctx.rect(0, 0, w, h);
@@ -731,6 +733,7 @@ canvas.addEventListener("wheel", (e) => {
 
 canvas.addEventListener("click", async (e) => {
   if (dragging) return;
+  if (actionInFlight) return;
   if (performance.now() < suppressClickUntil) return;
   const rect = canvas.getBoundingClientRect();
   const sx = e.clientX - rect.left;
@@ -754,6 +757,7 @@ canvas.addEventListener("click", async (e) => {
   const nxC = clamp(nx, 0, mapW - 1);
   const nyC = clamp(ny, 0, mapH - 1);
   try {
+    actionInFlight = true;
     const resp = await apiPost("/api/game/paint", { x: nxC, y: nyC, color: "#44ccff" });
     me = { ...resp.pos, id: me.id };
     coins = resp.coins;
@@ -781,6 +785,8 @@ canvas.addEventListener("click", async (e) => {
     else if (msg.includes("too_far")) setToast("слишком далеко");
     else setToast("ошибка");
     updateStats();
+  } finally {
+    actionInFlight = false;
   }
 });
 
