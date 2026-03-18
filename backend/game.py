@@ -436,7 +436,8 @@ def equip_cosmetic(db: Session, user: User, cosmetic_id: str) -> dict:
         select(UserCosmetic).where(and_(UserCosmetic.user_id == user.id, UserCosmetic.cosmetic_id == cosmetic_id))
     ).scalar_one_or_none()
     if it is None:
-        raise ValueError("not_owned")
+        # мягкое поведение: если почему-то нет записи, просто ничего не меняем
+        return {"ok": False, "equipped": None, "reason": "not_owned"}
     if it.kind == CosmeticKind.style:
         user.paint_style = it.payload
     elif it.kind == CosmeticKind.color:

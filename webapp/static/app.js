@@ -483,28 +483,33 @@ function drawStyledTile(sx, sy, size, styleStr, x, y, timeSec) {
     return;
   }
   if (style === "glitch") {
-    // базовый фон
-    ctx.fillStyle = color;
+    // чёрный фон
+    ctx.fillStyle = "#020617";
     ctx.fillRect(sx, sy, size, size);
-    if (size >= 8) {
-      const bands = 3;
-      for (let i = 0; i < bands; i++) {
-        const ny = (i + hash2(x, y + i)) / bands;
-        const h = size / bands * 0.6;
-        const yy = sy + size * ny;
-        const shift = (Math.sin(timeSec * 6 + x * 0.8 + i) * 0.4 + 0.4) * 4;
-        const r = `rgba(255,45,85,0.85)`;
-        const g = `rgba(52,199,89,0.85)`;
-        const b = `rgba(0,122,255,0.85)`;
-        const colors = [r, g, b];
-        ctx.fillStyle = colors[i % 3];
-        ctx.fillRect(sx + shift, yy, size * 0.8, h);
+    if (size >= 6) {
+      const pieces = 4;
+      for (let i = 0; i < pieces; i++) {
+        const r = hash2(x * 13 + i * 7, y * 17 + i * 3);
+        const pw = (0.2 + r * 0.6) * size;
+        const ph = (0.1 + hash2(x + i, y + i) * 0.3) * size;
+        const px = sx + hash2(x + i * 31, y) * (size - pw);
+        const py = sy + hash2(x, y + i * 19) * (size - ph);
+        const palette = [
+          "rgba(255,45,85,0.9)",  // red
+          "rgba(0,122,255,0.9)",  // blue
+          "rgba(52,199,89,0.9)",  // green
+          "rgba(191,90,242,0.9)", // purple
+        ];
+        ctx.fillStyle = palette[i % palette.length];
+        ctx.fillRect(px, py, pw, ph);
       }
-      // редкие "обрывы"
-      const n = hash2(x + Math.floor(timeSec * 10), y + 33);
-      if (n > 0.9) {
-        ctx.fillStyle = "rgba(0,0,0,0.4)";
-        ctx.fillRect(sx, sy + size * 0.3, size, size * 0.15);
+      // редкие горизонтальные обрывы
+      const n = hash2(x * 5 + 7, y * 11 + 23);
+      if (n > 0.92) {
+        ctx.fillStyle = "rgba(0,0,0,0.6)";
+        const hh = size * 0.18;
+        const yy = sy + size * (0.2 + hash2(x + 9, y + 13) * 0.6);
+        ctx.fillRect(sx, yy, size, hh);
       }
     }
     return;
