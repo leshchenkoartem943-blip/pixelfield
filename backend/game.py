@@ -158,6 +158,10 @@ def ensure_user(db: Session, tg_user_id: int, username: str | None, display_name
     )
     db.add(user)
     db.flush()
+
+    # Paint spawn cell immediately, so the initial tile isn't empty.
+    db.add(Tile(x=sx, y=sy, owner_user_id=user.id, color=current_tile_style(user)))
+    db.flush()
     return user
 
 
