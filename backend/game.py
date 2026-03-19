@@ -13,7 +13,10 @@ from urllib.parse import parse_qsl
 from sqlalchemy import and_, select
 from sqlalchemy.orm import Session
 
-from backend.models import Boost, BoostType, CosmeticKind, LootCrate, Tile, User, UserCosmetic
+from backend.models import (
+    Boost, BoostType, CosmeticKind, Donation, DonationRound, DonationRoundStatus,
+    LootCrate, Tile, User, UserCosmetic,
+)
 from backend.settings import settings
 
 
@@ -474,6 +477,133 @@ def equip_cosmetic(db: Session, user: User, cosmetic_id: str) -> dict:
     db.query(Tile).filter(Tile.owner_user_id == user.id).update({Tile.color: new_style})
     db.flush()
     return {"ok": True, "equipped": cosmetic_id, "style": user.paint_style, "color": user.base_color}
+
+
+# --- Donation Pool ---
+
+def get_or_create_active_round(db: Session) -> DonationRound:
+    """Return the current active donation round, creating one if needed."""
+    round_ = db.execute(
+        select(DonationRound).where(DonationRound.status == DonationRoundStatus.active).order_by(DonationRound.id.desc())
+    ).scalar_one_or_none()
+    if round_ is None:
+        ends = now_utc() + timedelta(hours=24)
+        round_ = DonationRound(ends_at=ends)
+        db.add(round_)
+        db.flush()
+    return round_
+
+
+def add_donation(
+    db: Session,
+    user: User,
+    stars: int,
+    tg_payment_charge_id: str | None = None,
+) -> dict:
+    if stars < 1:
+        raise ValueError("min_1_star")
+    round_ = get_or_create_active_round(db)
+    if round_.status != DonationRoundStatus.active:
+        raise ValueError("round_finished")
+
+    db.add(
+        Donation(
+            round_id=round_.id,
+            user_id=user.id,
+            stars=stars,
+            tg_payment_charge_id=tg_payment_charge_id,
+        )
+    )
+    round_.total_stars += stars
+    # Bonus in-game coins for donating (1 star = 5 coins)
+    user.coins += stars * 5
+    db.flush()
+    return {"ok": True, "stars": stars, "pool_total": round_.total_stars, "bonus_coins": stars * 5}
+
+
+def get_pool_info(db: Session) -> dict:
+    round_ = get_or_create_active_round(db)
+
+    # Top contributors
+    from sqlalchemy import func
+    rows = db.execute(
+        select(User.id, User.display_name, User.tg_user_id, func.sum(Donation.stars).label("total"))
+        .join(Donation, Donation.user_id == User.id)
+        .where(Donation.round_id == round_.id)
+        .group_by(User.id)
+        .order_by(func.sum(Donation.stars).desc())
+        .limit(10)
+    ).all()
+
+    contributors = [
+        {"user_id": r.id, "display_name": r.display_name, "stars": r.total}
+        for r in rows
+    ]
+
+    # Top players by score (potential winners)
+    top_players = db.execute(
+        select(User).order_by(User.score.desc()).limit(10)
+    ).scalars().all()
+
+    return {
+        "round_id": round_.id,
+        "status": round_.status.value,
+        "total_stars": round_.total_stars,
+        "ends_at": round_.ends_at.isoformat(),
+        "contributors": contributors,
+        "top_players": [
+            {"user_id": p.id, "display_name": p.display_name, "score": p.score,
+             "tiles_painted": p.tiles_painted, "level": p.level}
+            for p in top_players
+        ],
+    }
+
+
+def finish_pool(db: Session) -> dict:
+    round_ = db.execute(
+        select(DonationRound).where(DonationRound.status == DonationRoundStatus.active)
+        .order_by(DonationRound.id.desc())
+    ).scalar_one_or_none()
+    if round_ is None:
+        raise ValueError("no_active_round")
+
+    # Winner = player with highest score
+    winner = db.execute(select(User).order_by(User.score.desc())).scalar_one_or_none()
+
+    round_.status = DonationRoundStatus.finished
+    round_.finished_at = now_utc()
+    if winner:
+        round_.winner_user_id = winner.id
+        round_.winner_tg_id = winner.tg_user_id
+        # Reward: convert pool stars to in-game coins for the winner too
+        winner.coins += round_.total_stars * 10
+    db.flush()
+
+    return {
+        "round_id": round_.id,
+        "total_stars": round_.total_stars,
+        "winner_user_id": round_.winner_user_id,
+        "winner_tg_id": round_.winner_tg_id,
+        "winner_name": winner.display_name if winner else None,
+    }
+
+
+def get_leaderboard(db: Session) -> list[dict]:
+    top = db.execute(
+        select(User).order_by(User.score.desc()).limit(50)
+    ).scalars().all()
+    return [
+        {
+            "rank": i + 1,
+            "user_id": u.id,
+            "display_name": u.display_name,
+            "score": u.score,
+            "tiles_painted": u.tiles_painted,
+            "level": u.level,
+            "base_color": u.base_color,
+        }
+        for i, u in enumerate(top)
+    ]
 
 
 # --- Telegram WebApp auth (initData verification) ---

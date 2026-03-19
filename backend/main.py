@@ -12,9 +12,13 @@ from sqlalchemy.orm import Session
 
 from backend.db import SessionLocal, init_db
 from backend.game import (
+    add_donation,
     buy_shop_item,
     ensure_user,
     equip_cosmetic,
+    finish_pool,
+    get_leaderboard,
+    get_pool_info,
     get_shop_catalog,
     list_inventory,
     in_arena,
@@ -54,9 +58,7 @@ def get_current_user(
     x_admin_secret: str | None = Header(default=None, alias="X-ADMIN-SECRET"),
 ) -> User:
     if x_admin_secret and x_admin_secret == settings.admin_secret:
-        # dev/admin bypass: use a fixed tg id
         user = ensure_user(db, tg_user_id=999000, username="admin", display_name="Admin")
-        # Persist auto-created user across requests (each request has its own DB session).
         db.commit()
         db.refresh(user)
         return user
@@ -116,6 +118,11 @@ class EquipIn(BaseModel):
     cosmetic_id: str
 
 
+class DonateIn(BaseModel):
+    stars: int
+    tg_payment_charge_id: str | None = None
+
+
 @app.get("/api/me")
 def api_me(user: User = Depends(get_current_user), db: Session = Depends(get_db)):
     db.flush()
@@ -144,7 +151,6 @@ def api_state(
     user: User = Depends(get_current_user),
     db: Session = Depends(get_db),
 ):
-    # clamp viewport
     x0 = max(0, min(settings.map_width - 1, x0))
     y0 = max(0, min(settings.map_height - 1, y0))
     x1 = max(0, min(settings.map_width - 1, x1))
@@ -274,7 +280,8 @@ def api_shop_catalog():
     cat = get_shop_catalog()
     return {
         "items": [
-            {"id": cid, "title": it["title"], "price": it["price"], "kind": it["kind"]}
+            {"id": cid, "title": it["title"], "price": it["price"], "kind": it["kind"],
+             "payload": it.get("payload", "")}
             for cid, it in cat.items()
         ]
     }
@@ -321,6 +328,50 @@ def api_cosmetics_equip(body: EquipIn, user: User = Depends(get_current_user), d
     return {"ok": True, "result": res}
 
 
+# --- Donation Pool ---
+
+@app.get("/api/pool")
+def api_pool(user: User = Depends(get_current_user), db: Session = Depends(get_db)):
+    info = get_pool_info(db)
+    db.commit()
+    return info
+
+
+@app.post("/api/pool/donate")
+def api_pool_donate(body: DonateIn, user: User = Depends(get_current_user), db: Session = Depends(get_db)):
+    try:
+        res = add_donation(db, user, body.stars, body.tg_payment_charge_id)
+        db.commit()
+    except ValueError as e:
+        db.rollback()
+        raise HTTPException(status_code=400, detail=str(e)) from e
+    return {"ok": True, "result": res, "coins": user.coins}
+
+
+@app.post("/api/pool/finish")
+def api_pool_finish(
+    x_admin_secret: str | None = Header(default=None, alias="X-ADMIN-SECRET"),
+    db: Session = Depends(get_db),
+):
+    if x_admin_secret != settings.admin_secret:
+        raise HTTPException(status_code=403, detail="forbidden")
+    try:
+        res = finish_pool(db)
+        db.commit()
+    except ValueError as e:
+        db.rollback()
+        raise HTTPException(status_code=400, detail=str(e)) from e
+    return {"ok": True, "result": res}
+
+
+# --- Leaderboard ---
+
+@app.get("/api/leaderboard")
+def api_leaderboard(user: User = Depends(get_current_user), db: Session = Depends(get_db)):
+    board = get_leaderboard(db)
+    return {"leaderboard": board}
+
+
 @app.get("/health")
 def health():
     return {"ok": True}
@@ -338,4 +389,3 @@ def debug_settings(x_admin_secret: str | None = Header(default=None, alias="X-AD
         "env_database_url": settings.database_url,
         "admin_secret_set": bool(settings.admin_secret),
     }
-
