@@ -24,3 +24,5 @@ services:
         sync: false
       - key: ADMIN_TG_ID
         value: 8458621477
+      - key: WEBAPP_URL
+        value: https://pixel-field-backend.onrender.com/webapp/

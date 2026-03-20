@@ -204,7 +204,10 @@ def api_state(x0: int, y0: int, x1: int, y1: int,
         borders = {r.id: (r.border_style or "none") for r in border_rows}
 
     db.commit()
-    from backend.game import tile_zone, ZONE_HARDNESS, ZONE_THRESHOLDS
+    from backend.game import tile_zone, ZONE_HARDNESS, ZONE_THRESHOLDS, get_empty_progress_snapshot
+    # Pending empty-tile progress in this viewport
+    pending_raw = get_empty_progress_snapshot()
+    pending = [p for p in pending_raw if x0 <= p["x"] <= x1 and y0 <= p["y"] <= y1]
     return {
         "map": {"w": settings.map_width, "h": settings.map_height,
                 "shape": getattr(settings, "arena_shape", "circle"),
@@ -225,6 +228,7 @@ def api_state(x0: int, y0: int, x1: int, y1: int,
         ],
         "events": events,
         "borders": {str(k): v for k, v in borders.items()},
+        "pending": pending,
     }
 
 

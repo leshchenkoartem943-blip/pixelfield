@@ -49,6 +49,8 @@ let t0 = performance.now();
 // Pool ticker state
 let poolStars = 0;
 let lastAlertId = 0;
+// Pending empty-tile zone paintings: key → {h, u, z}
+let pendingTiles = new Map();
 
 // Confetti particles for jackpot
 const confetti = [];
@@ -754,8 +756,34 @@ function render(timeNow = performance.now()) {
         ctx.fillStyle = (x+y)%23===0 ? "#0a1422" : "#080d18";
         ctx.fillRect(sx, sy, zoom, zoom);
         drawZoneTint(sx, sy, zoom, x, y);
-        // Zone multiplier label on empty tiles when zoomed in
-        if (zoom >= 18) {
+
+        // Pending painting progress on this empty tile
+        const pend = pendingTiles.get(key(x, y));
+        if (pend) {
+          const zh = zoneHardness[pend.z || tileZone(x, y)] || 1;
+          const frac = pend.h / zh;
+          // Semi-transparent fill showing painting progress
+          ctx.save();
+          ctx.globalAlpha = 0.25 + frac * 0.35;
+          ctx.fillStyle = pend.u === me.id ? "#4cc9f0" : "#f97316";
+          ctx.fillRect(sx, sy, zoom, zoom);
+          ctx.globalAlpha = 1;
+          // Progress bar at bottom
+          const bh = Math.max(2, zoom * 0.14);
+          ctx.fillStyle = "#0a1422";
+          ctx.fillRect(sx, sy + zoom - bh, zoom, bh);
+          const hue = Math.round((1 - frac) * 120);
+          ctx.fillStyle = `hsl(${hue},90%,55%)`;
+          ctx.fillRect(sx, sy + zoom - bh, zoom * frac, bh);
+          if (zoom >= 14) {
+            ctx.font = `bold ${Math.max(7, zoom*0.4)}px ui-sans-serif`;
+            ctx.fillStyle = "#fff"; ctx.textAlign = "center";
+            ctx.shadowColor = "rgba(0,0,0,0.9)"; ctx.shadowBlur = 3;
+            ctx.fillText(`${pend.h}/${zh}`, sx + zoom*0.5, sy + zoom - bh - 2);
+          }
+          ctx.restore();
+        } else if (zoom >= 18) {
+          // Zone multiplier label on truly empty tiles when zoomed in
           const z = tileZone(x, y);
           if (z > 1) {
             ctx.save();
@@ -898,6 +926,8 @@ async function fetchState() {
   for (const pl of (data.players||[])) players.set(pl.id, pl);
   activeEvents = data.events || [];
   if (data.borders) borders = data.borders;
+  pendingTiles.clear();
+  for (const p of (data.pending || [])) pendingTiles.set(key(p.x, p.y), p);
 }
 
 function updateStats(d) {
@@ -957,11 +987,21 @@ canvas.addEventListener("click", async e => {
     const { sx: psx, sy: psy }=tile2screen(nx, ny);
     const cx2=psx+zoom/2, cy2=psy+zoom/2;
 
-    if(res.new) {
+    if(res.painting) {
+      // Empty tile in hard zone — needs more clicks
+      const zh = res.max_defense || res.zone_h || 1;
+      const hits = res.attack_hits || 1;
+      // Update local pending map immediately (don't wait for fetchState)
+      pendingTiles.set(key(nx, ny), { h: hits, u: me.id, z: res.zone || tileZone(nx, ny) });
+      tg?.HapticFeedback?.impactOccurred?.("light");
+      const zCol = res.zone > 1 ? ["","","🔵","🟡","🟠","🔴"][res.zone]||"🔴" : "⬡";
+      showToast(`${zCol} Закраска ${hits}/${zh}`, "");
+    } else if(res.new) {
+      // Tile fully claimed — clear pending if any
+      pendingTiles.delete(key(nx, ny));
       spawnParticles(cx2,cy2,tc,12);
       spawnRipple(cx2,cy2,tc);
       if(res.captured_from) {
-        // Captured enemy tile — explosion + haptic
         spawnExplosion(cx2, cy2, tc, 1.2);
         tg?.HapticFeedback?.impactOccurred?.("medium");
       }
@@ -1018,7 +1058,7 @@ canvas.addEventListener("click", async e => {
     if(msg.includes("paint_cooldown")){
       try{const m=await apiPost("/api/game/move",{dx:sx,dy:sy});me={...m.pos,id:me.id};updateStats();await fetchState();render();return;}catch{}
     }
-    if(msg.includes("move_cooldown")) showToast("кулдаун","error");
+    if(msg.includes("move_cooldown")) showToast("⏱ кулдаун","error");
     else if(msg.includes("rate_limited")) showToast("⛔ Слишком быстро!","error");
     else if(msg.includes("out_of_arena")) showToast("за пределами","error");
     else if(msg.includes("too_far")) showToast("далеко","error");

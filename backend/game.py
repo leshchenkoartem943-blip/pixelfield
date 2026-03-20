@@ -128,6 +128,20 @@ def check_rate_limit(user_id: int) -> bool:
     return True
 
 
+# ── Empty-tile zone painting progress ────────────────────────────────────────
+# Tracks in-progress painting of empty tiles in hard zones.
+# key: (x, y) → {"user_id": int, "hits": int}
+_empty_progress: dict[tuple[int, int], dict] = {}
+
+
+def get_empty_progress_snapshot() -> list[dict]:
+    """Return all pending empty-tile paintings (for state API)."""
+    return [
+        {"x": k[0], "y": k[1], "h": v["hits"], "u": v["user_id"]}
+        for k, v in _empty_progress.items()
+    ]
+
+
 def loot_chance_for_position(x: int, y: int) -> float:
     max_dist = float(settings.arena_radius_tiles)
     d = distance_to_center(x, y)
@@ -687,6 +701,32 @@ def paint_tile(db: Session, user: User, x: int, y: int, color: str) -> dict:
         newly_claimed = True
         captured_from = defender.display_name if defender else None
     elif existing is None:
+        # Zone-based painting progress for empty tiles
+        if zone_h > 1:
+            prog = _empty_progress.get((x, y))
+            if prog and prog["user_id"] == user.id:
+                prog["hits"] += 1
+                hits = prog["hits"]
+            else:
+                # New attempt (or different user reset it)
+                hits = 1
+                _empty_progress[(x, y)] = {"user_id": user.id, "hits": 1}
+
+            if hits < zone_h:
+                return {
+                    "new": False, "painting": True, "defended": False,
+                    "attack_hits": hits, "max_defense": zone_h,
+                    "defense_left": zone_h - hits,
+                    "zone": zone, "zone_h": zone_h,
+                    "coins": 0, "score": 0, "loot": False,
+                    "level": user.level,
+                    "new_achievements": [], "completed_quests": [],
+                    "streak": user.capture_streak or 0,
+                    "streak_mult": 1,
+                }
+            # Enough hits — claim the tile
+            _empty_progress.pop((x, y), None)
+
         db.add(Tile(x=x, y=y, owner_user_id=user.id, color=style, defense=0, attack_hits=0))
         user.owned_tiles = (user.owned_tiles or 0) + 1
         user.capture_streak = 0
