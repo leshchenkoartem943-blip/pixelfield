@@ -1,3 +1,9 @@
+databases:
+  - name: pixel-field-db
+    databaseName: pixelfield
+    user: pixelfield
+    plan: free
+
 services:
   - type: web
     name: pixel-field-backend
@@ -7,7 +13,9 @@ services:
     startCommand: python -m uvicorn backend.main:app --host 0.0.0.0 --port $PORT
     envVars:
       - key: DATABASE_URL
-        value: sqlite:///./data.db
+        fromDatabase:
+          name: pixel-field-db
+          property: connectionString
       - key: ADMIN_SECRET
         value: change_me
       - key: TELEGRAM_BOT_TOKEN_FOR_WEBAPP_HASH
@@ -16,4 +24,3 @@ services:
         sync: false
       - key: ADMIN_TG_ID
         value: 8458621477
-
