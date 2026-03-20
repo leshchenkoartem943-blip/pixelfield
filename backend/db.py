@@ -26,11 +26,20 @@ def init_db() -> None:
 
     Base.metadata.create_all(bind=engine)
 
-    # Lightweight SQLite migrations for dev (adds new columns if missing).
-    if settings.database_url.startswith("sqlite"):
+    is_pg = not settings.database_url.startswith("sqlite")
+
+    # PostgreSQL migrations: fix column types and add missing columns
+    if is_pg:
+        with engine.begin() as conn:
+            # Fix tg_user_id: INTEGER → BIGINT (Telegram IDs can exceed 2^31)
+            conn.execute(text(
+                "ALTER TABLE users ALTER COLUMN tg_user_id TYPE BIGINT"
+            ))
+    # SQLite migrations for local dev
+    elif settings.database_url.startswith("sqlite"):
         with engine.begin() as conn:
             cols = conn.execute(text("PRAGMA table_info(users)")).fetchall()
-            existing = {c[1] for c in cols}  # name is 2nd column
+            existing = {c[1] for c in cols}
             if "xp" not in existing:
                 conn.execute(text("ALTER TABLE users ADD COLUMN xp INTEGER DEFAULT 0"))
             if "level" not in existing:
