@@ -974,6 +974,26 @@ canvas.addEventListener("click", async e => {
   if(Math.abs(sx)+Math.abs(sy)===0) return;
   if(Math.abs(sx)+Math.abs(sy)===2){if(Math.abs(t.x-me.x)>=Math.abs(t.y-me.y))sy=0;else sx=0;}
   const nx=clamp(me.x+sx,0,mapW-1), ny=clamp(me.y+sy,0,mapH-1);
+
+  // ── Zone lock: if user has an in-progress painting, restrict movement ──────
+  // Find any pending tile owned by this player
+  let myPending = null;
+  for (const [k, p] of pendingTiles) {
+    if (p.u === me.id) { myPending = { ...p, key: k }; break; }
+  }
+  if (myPending) {
+    const [px, py] = myPending.key.split(",").map(Number);
+    const targetKey = key(nx, ny);
+    const isThePendingTile = (nx === px && ny === py);
+    const targetTile = tiles.get(targetKey);
+    const isOwnTile = targetTile && targetTile.o === me.id;
+    if (!isThePendingTile && !isOwnTile) {
+      const zh = zoneHardness[myPending.z || tileZone(px, py)] || 1;
+      showToast(`⛔ Заверши закраску ${myPending.h}/${zh}!`, "error");
+      tg?.HapticFeedback?.notificationOccurred?.("warning");
+      return;
+    }
+  }
   try {
     actionInFlight=true;
     const resp=await apiPost("/api/game/paint",{x:nx,y:ny,color:"#44ccff"});
@@ -1664,9 +1684,25 @@ setInterval(() => { fetchAlerts().catch(()=>{}); }, 8000);
 setInterval(() => { fetchPoolTicker().catch(()=>{}); }, 10000);
 
 init().catch(e => {
-  const msg=(e?.message)||String(e);
-  statsEl.textContent = `Ошибка: ${msg}`;
-  if(loadingEl){loadingEl.querySelector(".loading-text").textContent=`Ошибка: ${msg}`;loadingEl.querySelector(".spinner").style.display="none";}
+  const raw=(e?.message)||String(e);
+  const isMissingInit = raw.includes("missing_initdata") || raw.includes("401");
+  const msg = isMissingInit
+    ? "Открой игру через кнопку 🎮 Играть в боте"
+    : `Ошибка: ${raw}`;
+  statsEl.textContent = msg;
+  if(loadingEl){
+    const lt=loadingEl.querySelector(".loading-text");
+    if(lt) lt.textContent = msg;
+    const sp=loadingEl.querySelector(".spinner");
+    if(sp) sp.style.display="none";
+    // Show retry hint
+    if(isMissingInit){
+      const hint=document.createElement("div");
+      hint.style.cssText="margin-top:16px;font-size:13px;opacity:0.6;text-align:center;padding:0 20px;";
+      hint.textContent="Нажми /start в боте и кнопку 🎮 Играть";
+      loadingEl.appendChild(hint);
+    }
+  }
   console.error(e);
 });
 
