@@ -966,10 +966,28 @@ document.getElementById("btnProfile").onclick = () => openPanel("👤 Профи
         <div class="muted small">Стиль: <span style="color:#e8eefc">${m.paint_style}</span></div>
         <div class="row-start"><div class="color-dot" style="background:${m.base_color}"></div><div class="muted small">${m.base_color}</div></div>
       </div>
+      <div class="sep"></div>
+      <button id="btnRespawn" class="btn" style="width:100%;padding:10px;background:rgba(76,201,240,0.12);color:#4cc9f0;border:1px solid rgba(76,201,240,0.3);border-radius:10px;font-size:13px">🔄 Сменить позицию спауна</button>
     </div>
     ${inv.length ? `<div class="bold small" style="margin-bottom:8px;color:var(--muted)">ИНВЕНТАРЬ</div><div id="invItems"></div>`
       : `<div class="card"><div class="muted" style="text-align:center;padding:8px 0">Инвентарь пуст.</div></div>`}
   `;
+  panelBody.querySelector("#btnRespawn")?.addEventListener("click", async () => {
+    const btn = panelBody.querySelector("#btnRespawn");
+    btn.disabled = true; btn.textContent = "Перемещение...";
+    try {
+      const r = await apiPost("/api/game/respawn", {});
+      me = { ...r.pos, id: me.id };
+      recenter();
+      await fetchState(); render();
+      closePanel();
+      showToast("🔄 Перемещён в новую точку!", "loot");
+    } catch(e) {
+      btn.disabled = false; btn.textContent = "🔄 Сменить позицию спауна";
+      showToast("Ошибка перемещения", "error");
+    }
+  });
+
   const wrap = panelBody.querySelector("#invItems");
   if (wrap) {
     inv.forEach(it => {

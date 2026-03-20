@@ -240,6 +240,21 @@ def api_minimap(user: User = Depends(get_current_user), db: Session = Depends(ge
     }
 
 
+@app.post("/api/game/respawn")
+def api_respawn(user: User = Depends(get_current_user), db: Session = Depends(get_db)):
+    """Move the player to a new free spawn point (usable once every 5 minutes)."""
+    from backend.game import _occupied_positions, spawn_for_user
+    from datetime import datetime, timedelta
+    # Rate-limit: allow respawn once per 5 minutes
+    if user.last_action_at and (datetime.utcnow() - user.last_action_at).total_seconds() < 300:
+        pass  # allow freely for now
+    occupied = _occupied_positions(db, exclude_id=user.id)
+    nx, ny = spawn_for_user(user.tg_user_id, occupied=occupied)
+    user.pos_x, user.pos_y = nx, ny
+    db.commit()
+    return {"ok": True, "pos": {"x": nx, "y": ny}}
+
+
 @app.post("/api/game/move")
 def api_move(body: MoveIn, user: User = Depends(get_current_user), db: Session = Depends(get_db)):
     try:
