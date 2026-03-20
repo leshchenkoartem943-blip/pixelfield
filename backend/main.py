@@ -1,6 +1,9 @@
 from __future__ import annotations
 
+import asyncio
 import json
+import logging
+from contextlib import asynccontextmanager
 from pathlib import Path
 
 from fastapi import Depends, FastAPI, Header, HTTPException, Query, Request
@@ -25,11 +28,42 @@ from backend.models import (
 )
 from backend.settings import settings
 
+logger = logging.getLogger(__name__)
 
 BASE_DIR = Path(__file__).resolve().parent.parent
 WEBAPP_DIR = BASE_DIR / "webapp"
 
-app = FastAPI(title="Telegram Pixel Field")
+_bot_task: asyncio.Task | None = None
+
+
+async def _run_bot() -> None:
+    """Run the Telegram bot in the background alongside FastAPI."""
+    try:
+        import sys
+        if str(BASE_DIR) not in sys.path:
+            sys.path.insert(0, str(BASE_DIR))
+        from bot.bot import run as bot_run
+        await bot_run()
+    except Exception as exc:
+        logger.error("Bot crashed: %s", exc, exc_info=True)
+
+
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    global _bot_task
+    init_db()
+    _bot_task = asyncio.create_task(_run_bot())
+    logger.info("Bot polling started in background.")
+    yield
+    if _bot_task and not _bot_task.done():
+        _bot_task.cancel()
+        try:
+            await _bot_task
+        except asyncio.CancelledError:
+            pass
+
+
+app = FastAPI(title="Telegram Pixel Field", lifespan=lifespan)
 app.add_middleware(CORSMiddleware, allow_origins=["*"], allow_credentials=False,
                    allow_methods=["*"], allow_headers=["*"])
 
@@ -72,10 +106,6 @@ def get_current_user(
     db.commit(); db.refresh(user)
     return user
 
-
-@app.on_event("startup")
-def _startup():
-    init_db()
 
 
 app.mount("/webapp/static", StaticFiles(directory=str(WEBAPP_DIR / "static")), name="webapp_static")
