@@ -14,4 +14,6 @@ services:
         sync: false
       - key: BOT_TOKEN
         sync: false
+      - key: ADMIN_TG_ID
+        value: 8458621477
 
