@@ -34,6 +34,7 @@ API_BASE = settings.webapp_url.replace("/webapp/", "").rstrip("/")
 
 
 def main_keyboard() -> ReplyKeyboardMarkup:
+    """Reply keyboard — works on mobile. Desktop users should use the inline button."""
     return ReplyKeyboardMarkup(
         keyboard=[
             [KeyboardButton(text="🎮 Играть", web_app=WebAppInfo(url=settings.webapp_url))],
@@ -45,14 +46,29 @@ def main_keyboard() -> ReplyKeyboardMarkup:
     )
 
 
+def play_inline_button() -> InlineKeyboardMarkup:
+    """Inline button embedded in the message — passes initData on Telegram Desktop too."""
+    return InlineKeyboardMarkup(inline_keyboard=[
+        [InlineKeyboardButton(text="🎮 Играть", web_app=WebAppInfo(url=settings.webapp_url))],
+    ])
+
+
 async def cmd_start(msg: Message) -> None:
+    # Send inline button first — it works on Telegram Desktop (passes initData)
+    # Reply keyboard is kept for mobile convenience
     await msg.answer(
         "🎮 <b>Pixel Field</b>\n\n"
         "Крась клетки, захватывай территорию, зарабатывай монеты!\n"
         "Защищай свои клетки — враги должны атаковать 3 раза чтобы захватить.\n\n"
         "💎 <b>Донат-пул:</b> вкладывай звёзды — победитель (топ-1) забирает всё!\n"
-        "VIP донаторы получают постоянные бонусы в игре.",
+        "VIP донаторы получают постоянные бонусы в игре.\n\n"
+        "👇 <b>Нажми кнопку ниже чтобы открыть игру:</b>",
         parse_mode="HTML",
+        reply_markup=play_inline_button(),
+    )
+    # Also send reply keyboard so mobile users have quick access
+    await msg.answer(
+        "Или используй кнопку снизу 👇",
         reply_markup=main_keyboard(),
     )
 
