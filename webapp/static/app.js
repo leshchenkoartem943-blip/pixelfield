@@ -1502,7 +1502,8 @@ async function init() {
 
 function animate(now) { render(now); requestAnimationFrame(animate); }
 
-setInterval(() => { fetchMinimap().catch(()=>{}); }, 2500);
+setInterval(() => { fetchState().catch(()=>{}); }, 1500);
+setInterval(() => { fetchMinimap().catch(()=>{}); }, 4000);
 setInterval(() => { fetchAlerts().catch(()=>{}); }, 8000);
 setInterval(() => { fetchPoolTicker().catch(()=>{}); }, 10000);
 

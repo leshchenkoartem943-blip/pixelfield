@@ -87,26 +87,18 @@ def loot_chance_for_position(x: int, y: int) -> float:
     return 0.02 + 0.12 * (t ** 2)
 
 
-def random_spawn_edge(vip: bool = False) -> tuple[int, int]:
+def _edge_point(ang: float) -> tuple[int, int]:
+    """Return a valid arena-edge tile for the given angle."""
     cx, cy = map_center()
     r = settings.arena_radius_tiles
-    if vip:
-        # VIP spawns near center (inner 25%)
-        for _ in range(20):
-            ang = random.random() * math.tau
-            d = random.randint(0, r // 4)
-            x = clamp(int(round(cx + d * math.cos(ang))), 0, settings.map_width - 1)
-            y = clamp(int(round(cy + d * math.sin(ang))), 0, settings.map_height - 1)
-            if in_arena(x, y):
-                return x, y
-    ang = random.random() * math.tau
     x = int(round(cx + r * math.cos(ang)))
     y = int(round(cy + r * math.sin(ang)))
     x = clamp(x, 0, settings.map_width - 1)
     y = clamp(y, 0, settings.map_height - 1)
     if in_arena(x, y):
         return x, y
-    for _ in range(8):
+    # Walk inward until inside arena
+    for _ in range(10):
         dx2 = x - cx
         dy2 = y - cy
         x = int(round(x - (1 if dx2 > 0 else -1 if dx2 < 0 else 0)))
@@ -116,6 +108,29 @@ def random_spawn_edge(vip: bool = False) -> tuple[int, int]:
         if in_arena(x, y):
             return x, y
     return cx, cy
+
+
+def spawn_for_user(tg_user_id: int, vip: bool = False) -> tuple[int, int]:
+    """Return a deterministic-but-varied spawn position for a user."""
+    cx, cy = map_center()
+    r = settings.arena_radius_tiles
+    if vip:
+        # VIP: near center (inner 25%)
+        ang = (tg_user_id * 0.61803398875 * math.tau) % math.tau
+        for frac in [0.15, 0.20, 0.10, 0.25]:
+            d = int(r * frac)
+            x = clamp(int(round(cx + d * math.cos(ang))), 0, settings.map_width - 1)
+            y = clamp(int(round(cy + d * math.sin(ang))), 0, settings.map_height - 1)
+            if in_arena(x, y):
+                return x, y
+    # Spread evenly on the edge using golden-angle offset based on tg_user_id
+    ang = (tg_user_id * 0.61803398875 * math.tau) % math.tau
+    return _edge_point(ang)
+
+
+def random_spawn_edge(vip: bool = False) -> tuple[int, int]:
+    """Fallback random spawn (used when tg_user_id is not available)."""
+    return _edge_point(random.random() * math.tau)
 
 
 # ── VIP ──────────────────────────────────────────────────────────────────────
@@ -195,7 +210,7 @@ def ensure_user(db: Session, tg_user_id: int, username: str | None, display_name
     r, g, b = colorsys.hsv_to_rgb(hue, 0.78, 0.78)
     base_hex = f"#{int(r*255):02x}{int(g*255):02x}{int(b*255):02x}"
 
-    sx, sy = random_spawn_edge()
+    sx, sy = spawn_for_user(tg_user_id)
     user = User(
         tg_user_id=tg_user_id,
         username=username,
