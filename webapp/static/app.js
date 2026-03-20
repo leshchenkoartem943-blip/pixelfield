@@ -973,8 +973,12 @@ canvas.addEventListener("click", async e => {
   let sx=clamp(t.x-me.x,-1,1), sy=clamp(t.y-me.y,-1,1);
   if(Math.abs(sx)+Math.abs(sy)===2){if(Math.abs(t.x-me.x)>=Math.abs(t.y-me.y))sy=0;else sx=0;}
   const nx=clamp(me.x+sx,0,mapW-1), ny=clamp(me.y+sy,0,mapH-1);
-  // Allow clicking on current tile ONLY if it has pending zone painting
-  if(Math.abs(sx)+Math.abs(sy)===0 && !pendingTiles.has(key(nx,ny))) return;
+  // Allow clicking on current tile if: pending zone painting OR enemy tile under attack
+  if(Math.abs(sx)+Math.abs(sy)===0) {
+    const ct = tiles.get(key(nx, ny));
+    const isEnemyUnderAttack = ct && ct.o !== me.id && (ct.h || 0) > 0;
+    if(!pendingTiles.has(key(nx,ny)) && !isEnemyUnderAttack) return;
+  }
 
   // ── Zone lock: if user has an in-progress hard-zone painting ──────────────
   // Rules:

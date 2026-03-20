@@ -283,6 +283,17 @@ def _occupied_positions(db: Session, exclude_id: int | None = None) -> set[tuple
     return {(r.pos_x, r.pos_y) for r in rows}
 
 
+def _apply_admin_perks(user: User) -> None:
+    """Give the admin god-mode stats every time they log in."""
+    user.vip_level = 3
+    if (user.coins or 0) < 999_999:
+        user.coins = 999_999
+    if (user.score or 0) < 99_999:
+        user.score = 99_999
+    if user.level < 20:
+        user.level = 20
+
+
 def ensure_user(db: Session, tg_user_id: int, username: str | None, display_name: str | None) -> User:
     cx, cy = map_center()
     user = db.execute(select(User).where(User.tg_user_id == tg_user_id)).scalar_one_or_none()
@@ -298,6 +309,8 @@ def ensure_user(db: Session, tg_user_id: int, username: str | None, display_name
         if at_center or colliding:
             sx, sy = spawn_for_user(tg_user_id, occupied=occupied)
             user.pos_x, user.pos_y = sx, sy
+        if tg_user_id == settings.admin_tg_id and settings.admin_tg_id != 0:
+            _apply_admin_perks(user)
         return user
 
     hue = ((tg_user_id * 0.61803398875) % 1.0)
@@ -324,6 +337,8 @@ def ensure_user(db: Session, tg_user_id: int, username: str | None, display_name
     )
     db.add(user)
     db.flush()
+    if tg_user_id == settings.admin_tg_id and settings.admin_tg_id != 0:
+        _apply_admin_perks(user)
     db.add(Tile(x=sx, y=sy, owner_user_id=user.id, color=current_tile_style(user), defense=0))
     db.flush()
     return user
@@ -589,7 +604,7 @@ def _check_event_tile(db: Session, user: User, x: int, y: int) -> int:
 
 def move_user(db: Session, user: User, dx: int, dy: int) -> None:
     stats = effective_stats(db, user)
-    if not can_act(user.last_move_at, settings.move_cooldown_ms, stats.speed_multiplier):
+    if not is_god_admin(user) and not can_act(user.last_move_at, settings.move_cooldown_ms, stats.speed_multiplier):
         raise ValueError("move_cooldown")
     nx = clamp(user.pos_x + dx, 0, settings.map_width - 1)
     ny = clamp(user.pos_y + dy, 0, settings.map_height - 1)
@@ -613,27 +628,32 @@ def _streak_coin_bonus(user: User) -> float:
     return 1.0
 
 
+def is_god_admin(user: User) -> bool:
+    """True for the admin — unlimited actions, no cooldowns, free shop."""
+    return user.tg_user_id == settings.admin_tg_id and settings.admin_tg_id != 0
+
+
 def paint_tile(db: Session, user: User, x: int, y: int, color: str) -> dict:
+    admin = is_god_admin(user)
     stats = effective_stats(db, user)
-    if not can_act(user.last_paint_at, settings.paint_cooldown_ms, stats.speed_multiplier):
+    if not admin and not can_act(user.last_paint_at, settings.paint_cooldown_ms, stats.speed_multiplier):
         raise ValueError("paint_cooldown")
-    if not check_rate_limit(user.id):
+    if not admin and not check_rate_limit(user.id):
         raise ValueError("rate_limited")
 
     x = clamp(x, 0, settings.map_width - 1)
     y = clamp(y, 0, settings.map_height - 1)
     if not in_arena(x, y):
         raise ValueError("out_of_arena")
-    if manhattan(user.pos_x, user.pos_y, x, y) > stats.paint_range:
+    # Admin can paint anywhere on the map
+    if not admin and manhattan(user.pos_x, user.pos_y, x, y) > stats.paint_range:
         raise ValueError("too_far")
 
     zone = tile_zone(x, y)
-    zone_h = ZONE_HARDNESS[zone]  # base hits required to capture in this zone
+    zone_h = 1 if admin else ZONE_HARDNESS[zone]  # admin captures in 1 hit always
 
     style = current_tile_style(user)
     existing = db.execute(select(Tile).where(and_(Tile.x == x, Tile.y == y))).scalar_one_or_none()
-    user.pos_x = x
-    user.pos_y = y
     user.last_paint_at = now_utc()
 
     # ── Capture war mechanic ──────────────────────────────────────────────────
@@ -647,6 +667,8 @@ def paint_tile(db: Session, user: User, x: int, y: int, color: str) -> dict:
 
         if current_hits < total_needed:
             existing.attack_hits = current_hits
+            # Do NOT move the user on a non-capture hit — they stay put and can
+            # keep clicking the adjacent enemy tile without moving away first.
             db.add(TileAttackEvent(
                 attacker_id=user.id, defender_id=old_owner_id,
                 x=x, y=y, result="hit",
@@ -664,7 +686,11 @@ def paint_tile(db: Session, user: User, x: int, y: int, color: str) -> dict:
                 "level": user.level,
                 "new_achievements": [], "completed_quests": [],
                 "streak": user.capture_streak,
+                "pos": {"x": user.pos_x, "y": user.pos_y},
             }
+        # Tile fully captured — move user to it
+        user.pos_x = x
+        user.pos_y = y
 
         # defense == 0 → tile is captured
         existing.owner_user_id = user.id
@@ -727,6 +753,8 @@ def paint_tile(db: Session, user: User, x: int, y: int, color: str) -> dict:
             # Enough hits — claim the tile
             _empty_progress.pop((x, y), None)
 
+        user.pos_x = x
+        user.pos_y = y
         db.add(Tile(x=x, y=y, owner_user_id=user.id, color=style, defense=0, attack_hits=0))
         user.owned_tiles = (user.owned_tiles or 0) + 1
         user.capture_streak = 0
@@ -736,6 +764,8 @@ def paint_tile(db: Session, user: User, x: int, y: int, color: str) -> dict:
         streak = 0
     else:
         # own tile: reinforce (max 3)
+        user.pos_x = x
+        user.pos_y = y
         existing.color = style
         existing.attack_hits = 0
         existing.painted_at = now_utc()
@@ -864,14 +894,17 @@ def buy_shop_item(db: Session, user: User, item_id: str) -> dict:
     if item_id not in catalog:
         raise ValueError("bad_item")
     it = catalog[item_id]
+    admin = is_god_admin(user)
 
-    # VIP-exclusive items check
-    if it.get("vip_required", 0) > user.vip_level:
+    # VIP-exclusive items: admin bypasses requirement
+    if not admin and it.get("vip_required", 0) > user.vip_level:
         raise ValueError("vip_required")
 
-    if user.coins < it["price"]:
-        raise ValueError("no_money")
-    user.coins -= it["price"]
+    # Admin pays nothing; others need sufficient coins
+    if not admin:
+        if user.coins < it["price"]:
+            raise ValueError("no_money")
+        user.coins -= it["price"]
 
     if it["kind"] in ("style", "color", "border"):
         kind_map = {"style": CosmeticKind.style, "color": CosmeticKind.color, "border": CosmeticKind.border}

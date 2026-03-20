@@ -21,7 +21,7 @@ from backend.game import (
     add_donation, buy_shop_item, claim_daily_quest, ensure_user, equip_cosmetic,
     finish_pool, get_achievements, get_active_events, get_daily_quests, get_leaderboard,
     get_my_alerts, get_pool_info, get_round_history, get_shop_catalog, get_war_feed,
-    in_arena, list_inventory, move_user, open_loot, paint_tile, verify_telegram_init_data,
+    in_arena, is_god_admin, list_inventory, move_user, open_loot, paint_tile, verify_telegram_init_data,
 )
 from backend.models import (
     DonationRound, DonationRoundStatus, LootCrate, Tile, User, WithdrawalRequest,
