@@ -971,9 +971,10 @@ canvas.addEventListener("click", async e => {
   const t=screen2tile(e.clientX-rect.left,e.clientY-rect.top);
   if(!inArena(t.x,t.y)){showToast("вне арены","error");return;}
   let sx=clamp(t.x-me.x,-1,1), sy=clamp(t.y-me.y,-1,1);
-  if(Math.abs(sx)+Math.abs(sy)===0) return;
   if(Math.abs(sx)+Math.abs(sy)===2){if(Math.abs(t.x-me.x)>=Math.abs(t.y-me.y))sy=0;else sx=0;}
   const nx=clamp(me.x+sx,0,mapW-1), ny=clamp(me.y+sy,0,mapH-1);
+  // Allow clicking on current tile ONLY if it has pending zone painting
+  if(Math.abs(sx)+Math.abs(sy)===0 && !pendingTiles.has(key(nx,ny))) return;
 
   // ── Zone lock: if user has an in-progress hard-zone painting ──────────────
   // Rules:
