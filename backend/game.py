@@ -110,10 +110,14 @@ def _edge_point(ang: float) -> tuple[int, int]:
     return cx, cy
 
 
-def spawn_for_user(tg_user_id: int, vip: bool = False) -> tuple[int, int]:
-    """Return a deterministic-but-varied spawn position for a user."""
+def spawn_for_user(tg_user_id: int, vip: bool = False,
+                   occupied: set[tuple[int, int]] | None = None) -> tuple[int, int]:
+    """Return a deterministic-but-varied spawn position for a user.
+    Tries multiple angles if the primary spot is occupied by another player."""
     cx, cy = map_center()
     r = settings.arena_radius_tiles
+    occupied = occupied or set()
+
     if vip:
         # VIP: near center (inner 25%)
         ang = (tg_user_id * 0.61803398875 * math.tau) % math.tau
@@ -121,11 +125,22 @@ def spawn_for_user(tg_user_id: int, vip: bool = False) -> tuple[int, int]:
             d = int(r * frac)
             x = clamp(int(round(cx + d * math.cos(ang))), 0, settings.map_width - 1)
             y = clamp(int(round(cy + d * math.sin(ang))), 0, settings.map_height - 1)
-            if in_arena(x, y):
+            if in_arena(x, y) and (x, y) not in occupied:
                 return x, y
-    # Spread evenly on the edge using golden-angle offset based on tg_user_id
-    ang = (tg_user_id * 0.61803398875 * math.tau) % math.tau
-    return _edge_point(ang)
+
+    # Try golden-angle offsets: primary + 12 alternatives spread around the edge
+    base_ang = (tg_user_id * 0.61803398875 * math.tau) % math.tau
+    for i in range(13):
+        ang = (base_ang + i * math.tau / 13) % math.tau
+        pt = _edge_point(ang)
+        if pt not in occupied:
+            return pt
+    # Last resort: random free edge point
+    for _ in range(50):
+        pt = _edge_point(random.random() * math.tau)
+        if pt not in occupied:
+            return pt
+    return _edge_point(base_ang)
 
 
 def random_spawn_edge(vip: bool = False) -> tuple[int, int]:
@@ -197,20 +212,38 @@ def can_act(last_at: datetime | None, cooldown_ms: int, speed_multiplier: float)
 
 # ── User creation ─────────────────────────────────────────────────────────────
 
+def _occupied_positions(db: Session, exclude_id: int | None = None) -> set[tuple[int, int]]:
+    """Return set of (x, y) positions currently occupied by other players."""
+    q = select(User.pos_x, User.pos_y)
+    if exclude_id is not None:
+        q = q.where(User.id != exclude_id)
+    rows = db.execute(q).all()
+    return {(r.pos_x, r.pos_y) for r in rows}
+
+
 def ensure_user(db: Session, tg_user_id: int, username: str | None, display_name: str | None) -> User:
+    cx, cy = map_center()
     user = db.execute(select(User).where(User.tg_user_id == tg_user_id)).scalar_one_or_none()
     if user:
         if username is not None:
             user.username = username
         if display_name:
             user.display_name = display_name[:64]
+        # Fix stuck users: if at center (fallback spawn) or colliding with another player
+        occupied = _occupied_positions(db, exclude_id=user.id)
+        at_center = (user.pos_x == cx and user.pos_y == cy)
+        colliding = (user.pos_x, user.pos_y) in occupied
+        if at_center or colliding:
+            sx, sy = spawn_for_user(tg_user_id, occupied=occupied)
+            user.pos_x, user.pos_y = sx, sy
         return user
 
     hue = ((tg_user_id * 0.61803398875) % 1.0)
     r, g, b = colorsys.hsv_to_rgb(hue, 0.78, 0.78)
     base_hex = f"#{int(r*255):02x}{int(g*255):02x}{int(b*255):02x}"
 
-    sx, sy = spawn_for_user(tg_user_id)
+    occupied = _occupied_positions(db)
+    sx, sy = spawn_for_user(tg_user_id, occupied=occupied)
     user = User(
         tg_user_id=tg_user_id,
         username=username,

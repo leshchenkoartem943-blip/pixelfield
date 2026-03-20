@@ -284,6 +284,31 @@ async def admin_withdrawals(msg: Message) -> None:
         db.close()
 
 
+async def cmd_respawn(msg: Message) -> None:
+    """Move the user to a new spawn position on the map."""
+    if not msg.from_user:
+        return
+    db = SessionLocal()
+    try:
+        from backend.game import _occupied_positions, spawn_for_user
+        u = msg.from_user
+        user = ensure_user(db, tg_user_id=u.id, username=u.username, display_name=u.full_name or "Player")
+        db.commit(); db.refresh(user)
+        occupied = _occupied_positions(db, exclude_id=user.id)
+        nx, ny = spawn_for_user(u.id, occupied=occupied)
+        user.pos_x, user.pos_y = nx, ny
+        db.commit()
+        await msg.answer(
+            f"🔄 <b>Перемещение выполнено!</b>\n"
+            f"Твоя новая позиция: <b>({nx}, {ny})</b>\n\n"
+            f"Открой игру — ты появишься в новой точке.",
+            parse_mode="HTML",
+            reply_markup=main_keyboard(),
+        )
+    finally:
+        db.close()
+
+
 async def admin_finish(msg: Message, bot: Bot) -> None:
     admin_ids = {settings.admin_tg_id} if settings.admin_tg_id else set()
     if msg.from_user.id not in admin_ids:
@@ -340,6 +365,7 @@ async def run() -> None:
     dp.message.register(rules, F.text == "ℹ️ Правила")
     dp.message.register(cmd_start, F.text == "🎮 Играть")
     dp.message.register(donate_menu, F.text == "💎 Донат в пул")
+    dp.message.register(cmd_respawn, Command("respawn"))
     dp.message.register(admin_finish, Command("admin_finish"))
     dp.message.register(admin_pay, Command("admin_pay"))
     dp.message.register(admin_withdrawals, Command("admin_withdrawals"))
