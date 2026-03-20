@@ -410,7 +410,9 @@ async def run() -> None:
     dp.pre_checkout_query.register(pre_checkout)
     dp.message.register(successful_payment, F.successful_payment)
 
-    await dp.start_polling(bot)
+    # drop_pending_updates=True: ignore any updates queued while bot was offline
+    # and immediately claim the polling slot — old instance loses it right away.
+    await dp.start_polling(bot, drop_pending_updates=True)
 
 
 if __name__ == "__main__":
