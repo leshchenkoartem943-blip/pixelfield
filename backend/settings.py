@@ -1,5 +1,8 @@
 from __future__ import annotations
 
+import os
+
+from pydantic import model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
@@ -8,6 +11,16 @@ class Settings(BaseSettings):
 
     bot_token: str = "CHANGE_ME"
     webapp_url: str = "http://localhost:8000/webapp/"
+
+    @model_validator(mode="after")
+    def _auto_webapp_url(self) -> "Settings":
+        """On Render, RENDER_EXTERNAL_URL is injected automatically.
+        Use it so the bot button points to the live URL without any manual config."""
+        if self.webapp_url == "http://localhost:8000/webapp/":
+            render_host = os.environ.get("RENDER_EXTERNAL_URL", "").rstrip("/")
+            if render_host:
+                self.webapp_url = render_host + "/webapp/"
+        return self
     database_url: str = "sqlite:///./data.db"
     telegram_bot_token_for_webapp_hash: str | None = None
     admin_secret: str = "change_me"

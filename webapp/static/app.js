@@ -975,21 +975,27 @@ canvas.addEventListener("click", async e => {
   if(Math.abs(sx)+Math.abs(sy)===2){if(Math.abs(t.x-me.x)>=Math.abs(t.y-me.y))sy=0;else sx=0;}
   const nx=clamp(me.x+sx,0,mapW-1), ny=clamp(me.y+sy,0,mapH-1);
 
-  // ── Zone lock: if user has an in-progress painting, restrict movement ──────
-  // Find any pending tile owned by this player
+  // ── Zone lock: if user has an in-progress hard-zone painting ──────────────
+  // Rules:
+  //  ✅ Can continue painting the pending tile itself
+  //  ✅ Can move to already-owned tiles
+  //  ✅ Can paint zone-1 tiles (no multi-click requirement)
+  //  ⛔ Cannot start another hard-zone (zone_h > 1) tile
   let myPending = null;
   for (const [k, p] of pendingTiles) {
     if (p.u === me.id) { myPending = { ...p, key: k }; break; }
   }
   if (myPending) {
     const [px, py] = myPending.key.split(",").map(Number);
-    const targetKey = key(nx, ny);
     const isThePendingTile = (nx === px && ny === py);
-    const targetTile = tiles.get(targetKey);
+    const targetTile = tiles.get(key(nx, ny));
     const isOwnTile = targetTile && targetTile.o === me.id;
-    if (!isThePendingTile && !isOwnTile) {
+    const targetZh = zoneHardness[tileZone(nx, ny)] || 1;
+    const isZone1Target = targetZh === 1;   // 1-click tile — always allowed
+
+    if (!isThePendingTile && !isOwnTile && !isZone1Target) {
       const zh = zoneHardness[myPending.z || tileZone(px, py)] || 1;
-      showToast(`⛔ Заверши закраску ${myPending.h}/${zh}!`, "error");
+      showToast(`⛔ Заверши закраску ${myPending.h}/${zh}`, "error");
       tg?.HapticFeedback?.notificationOccurred?.("warning");
       return;
     }
