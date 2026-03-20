@@ -886,7 +886,12 @@ async function fetchState() {
   arenaR = data.map.r || arenaR;
   arenaShape = data.map.shape || "circle";
   if (data.map.zone_thresholds) zoneThresholds = data.map.zone_thresholds;
-  if (data.map.zone_hardness)   zoneHardness   = data.map.zone_hardness;
+  if (data.map.zone_hardness) {
+    // JSON converts int keys to strings — normalize back to numbers
+    const zh = data.map.zone_hardness;
+    zoneHardness = {};
+    for (const k of Object.keys(zh)) zoneHardness[Number(k)] = zh[k];
+  }
   me = { x: data.me.x, y: data.me.y, id: data.me.id };
   for (const it of data.tiles) tiles.set(key(it.x,it.y), {c:it.c, o:it.o, d:it.d||0, h:it.h||0});
   players.clear();
@@ -1593,13 +1598,6 @@ document.getElementById("btnWar")?.addEventListener("click", () => openPanel("�
 
 // ── Init ──────────────────────────────────────────────────────────────────────
 async function init() {
-  if (!INITDATA && !IS_LOCAL) {
-    if (loadingEl) {
-      loadingEl.querySelector(".loading-text").textContent = "Открой игру через Telegram бота";
-      loadingEl.querySelector(".spinner").style.display = "none";
-    }
-    return;
-  }
   const d = await apiGet("/api/me");
   meData = d; coins = d.coins; score = d.score;
   me = { ...d.pos, id: d.id };

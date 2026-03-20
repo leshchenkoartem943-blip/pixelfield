@@ -4,10 +4,9 @@ import hashlib
 import hmac
 import math
 import random
-import threading
 import time
 import colorsys
-from collections import defaultdict, deque
+from collections import deque
 from dataclasses import dataclass
 from datetime import date, datetime, timedelta, timezone
 from urllib.parse import parse_qsl
@@ -104,8 +103,8 @@ def tile_zone(x: int, y: int) -> int:
 
 
 # ── Anti-autoclicker rate limiter ─────────────────────────────────────────────
-_rate_lock = threading.Lock()
-_user_action_times: dict[int, deque] = defaultdict(lambda: deque(maxlen=40))
+# Simple per-user action counter — no lock needed (GIL protects dict access in CPython)
+_user_action_times: dict[int, list] = {}
 
 MAX_ACTIONS_PER_WINDOW = 20  # max clicks
 RATE_WINDOW_SEC = 5.0        # per N seconds
@@ -114,14 +113,19 @@ RATE_WINDOW_SEC = 5.0        # per N seconds
 def check_rate_limit(user_id: int) -> bool:
     """Return True if action allowed, False if rate-limited (autoclicker guard)."""
     now = time.monotonic()
-    with _rate_lock:
-        dq = _user_action_times[user_id]
-        while dq and now - dq[0] > RATE_WINDOW_SEC:
-            dq.popleft()
-        if len(dq) >= MAX_ACTIONS_PER_WINDOW:
-            return False
-        dq.append(now)
+    times = _user_action_times.get(user_id)
+    if times is None:
+        _user_action_times[user_id] = [now]
         return True
+    # Drop old entries
+    cutoff = now - RATE_WINDOW_SEC
+    times = [t for t in times if t > cutoff]
+    if len(times) >= MAX_ACTIONS_PER_WINDOW:
+        _user_action_times[user_id] = times
+        return False
+    times.append(now)
+    _user_action_times[user_id] = times
+    return True
 
 
 def loot_chance_for_position(x: int, y: int) -> float:
