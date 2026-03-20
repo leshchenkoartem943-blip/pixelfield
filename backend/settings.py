@@ -24,6 +24,12 @@ class Settings(BaseSettings):
     move_cooldown_ms: int = 250
     paint_cooldown_ms: int = 350
 
+    # Arena shape: circle | square | star
+    arena_shape: str = "circle"
+
+    # Admin Telegram user ID for /admin_finish bot command
+    admin_tg_id: int = 0
+
 
 settings = Settings()
 

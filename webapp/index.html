@@ -17,20 +17,38 @@
     <div id="topbar">
       <div class="title">PF</div>
       <div id="stats" class="stats">...</div>
-      <button id="btnProfile" class="btn" title="Профиль">👤</button>
-      <button id="btnShop" class="btn" title="Магазин">🛒</button>
-      <button id="btnLoot" class="btn" title="Лут">📦</button>
-      <button id="btnTop" class="btn" title="Топ">🏆</button>
-      <button id="btnPool" class="btn btn-gold" title="Донат-пул">💎</button>
+      <button id="btnProfile"  class="btn" title="Профиль">👤</button>
+      <button id="btnAch"      class="btn" title="Достижения">🏅</button>
+      <button id="btnDaily"    class="btn" title="Задания">📋</button>
+      <button id="btnShop"     class="btn" title="Магазин">🛒</button>
+      <button id="btnLoot"     class="btn" title="Лут">📦</button>
+      <button id="btnTop"      class="btn" title="Топ">🏆</button>
+      <button id="btnPool"     class="btn btn-gold" title="Донат-пул">💎</button>
+      <button id="btnWar"      class="btn btn-war"  title="Война">⚔️</button>
       <button id="btnRecenter" class="btn" title="К себе">⊙</button>
     </div>
 
     <canvas id="c"></canvas>
     <canvas id="mini"></canvas>
 
-    <div id="overlay"></div>
+    <!-- Pool live ticker -->
+    <div id="poolTicker" class="pool-ticker hidden">💎 <span id="poolTickerVal">0</span> ⭐</div>
 
+    <!-- Jackpot fullscreen overlay -->
+    <div id="jackpotOverlay" class="jackpot-overlay hidden">
+      <canvas id="confettiCanvas"></canvas>
+      <div class="jackpot-card">
+        <div class="jackpot-crown">🏆</div>
+        <div class="jackpot-title">ВЫ ПОБЕДИЛИ!</div>
+        <div class="jackpot-sub" id="jackpotSub">Раунд #1 · 0 ⭐</div>
+        <button id="btnJackpotClaim" class="btn btn-gold" style="margin-top:18px;padding:12px 28px;font-size:15px">Получить приз</button>
+        <button id="btnJackpotClose" class="btn" style="margin-top:10px;font-size:12px;color:var(--muted)">Закрыть</button>
+      </div>
+    </div>
+
+    <div id="overlay"></div>
     <div id="toast"></div>
+    <div id="popup"><div class="popup-title" id="popupTitle"></div><div class="popup-body" id="popupBody"></div></div>
 
     <div id="panel" class="panel hidden">
       <div class="panelHandle"></div>
@@ -41,6 +59,6 @@
       <div id="panelBody" class="panelBody"></div>
     </div>
 
-    <script type="module" src="/webapp/static/app.js?v=20"></script>
+    <script type="module" src="/webapp/static/app.js?v=31"></script>
   </body>
 </html>
