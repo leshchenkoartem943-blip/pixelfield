@@ -413,7 +413,7 @@ async def api_create_invoice(
 
 
 @app.post("/api/pool/withdrawal")
-def api_withdrawal(user: User = Depends(get_current_user), db: Session = Depends(get_db)):
+async def api_withdrawal(user: User = Depends(get_current_user), db: Session = Depends(get_db)):
     won_round = db.execute(
         select(DonationRound)
         .where(
@@ -435,7 +435,67 @@ def api_withdrawal(user: User = Depends(get_current_user), db: Session = Depends
     )
     db.add(wr)
     db.commit()
+
+    # Notify admin via Bot API
+    if settings.admin_tg_id:
+        tg_username = f"@{user.username}" if user.username else f"TG ID: {user.tg_user_id}"
+        text = (
+            f"🏆 <b>Запрос на вывод приза!</b>\n\n"
+            f"Раунд: <b>#{won_round.id}</b>\n"
+            f"Победитель: <b>{user.display_name}</b> ({tg_username})\n"
+            f"TG ID: <code>{user.tg_user_id}</code>\n"
+            f"Сумма: <b>{won_round.total_stars} ⭐</b>\n\n"
+            f"Выплати через Fragment и подтверди командой:\n"
+            f"<code>/admin_pay {won_round.id}</code>"
+        )
+        try:
+            async with httpx.AsyncClient(timeout=8) as client:
+                await client.post(
+                    f"https://api.telegram.org/bot{settings.bot_token}/sendMessage",
+                    json={"chat_id": settings.admin_tg_id, "text": text, "parse_mode": "HTML"},
+                )
+        except Exception:
+            pass
+
     return {"ok": True, "status": "pending", "already_requested": False}
+
+
+@app.post("/api/pool/admin_pay/{round_id}")
+async def api_admin_pay(
+    round_id: int,
+    x_admin_secret: str | None = Header(default=None, alias="X-ADMIN-SECRET"),
+    db: Session = Depends(get_db),
+):
+    if x_admin_secret != settings.admin_secret:
+        raise HTTPException(403, "forbidden")
+    wr = db.execute(
+        select(WithdrawalRequest).where(WithdrawalRequest.round_id == round_id)
+    ).scalar_one_or_none()
+    if not wr:
+        raise HTTPException(404, "no_withdrawal_request")
+    from datetime import datetime
+    wr.status = "paid"
+    wr.paid_at = datetime.utcnow()
+    db.commit()
+
+    # Notify winner
+    if wr.winner_tg_id:
+        text = (
+            f"✅ <b>Выплата произведена!</b>\n\n"
+            f"Раунд #{round_id} · <b>{wr.total_stars} ⭐</b> отправлено.\n\n"
+            f"Проверь входящие переводы в Telegram.\n"
+            f"Спасибо за игру — до встречи в новом сезоне! 🎮"
+        )
+        try:
+            async with httpx.AsyncClient(timeout=8) as client:
+                await client.post(
+                    f"https://api.telegram.org/bot{settings.bot_token}/sendMessage",
+                    json={"chat_id": wr.winner_tg_id, "text": text, "parse_mode": "HTML"},
+                )
+        except Exception:
+            pass
+
+    return {"ok": True, "round_id": round_id, "total_stars": wr.total_stars}
 
 
 @app.get("/api/debug/settings")

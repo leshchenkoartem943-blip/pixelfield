@@ -780,6 +780,21 @@ canvas#mini:hover {
 }
 .pool-tabs::-webkit-scrollbar { display: none; }
 
+/* ───────── VIP PROGRESS CARD ───────── */
+.vip-progress-card {
+  background: rgba(251,191,36,0.06);
+  border: 1px solid rgba(251,191,36,0.2);
+  border-radius: 14px;
+  padding: 10px 14px;
+  margin-bottom: 12px;
+}
+
+/* ───────── CARD-ME highlight ───────── */
+.card-me {
+  border-color: rgba(76,201,240,0.4) !important;
+  background: rgba(76,201,240,0.06) !important;
+}
+
 /* ───────── BORDER PREVIEWS ───────── */
 .border-preview {
   width: 36px;

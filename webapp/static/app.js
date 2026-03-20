@@ -1145,24 +1145,60 @@ document.getElementById("btnTop").onclick = () => openPanel("🏆 Топ игр�
 
 // ── Donation Pool panel ───────────────────────────────────────────────────────
 document.getElementById("btnPool").onclick = () => openPanel("💎 Донат-пул", async () => {
-  const [pool, hist] = await Promise.all([apiGet("/api/pool"), apiGet("/api/pool/history")]);
+  const [pool, hist, meInfo] = await Promise.all([
+    apiGet("/api/pool"),
+    apiGet("/api/pool/history"),
+    apiGet("/api/me"),
+  ]);
   const endsDate = new Date(pool.ends_at + "Z");
   const msLeft = Math.max(0, endsDate - Date.now());
-  const h = Math.floor(msLeft/3600000), m2 = Math.floor((msLeft%3600000)/60000);
+  const daysLeft = Math.floor(msLeft / 86400000);
+  const h = Math.floor((msLeft % 86400000) / 3600000);
+  const m2 = Math.floor((msLeft % 3600000) / 60000);
+  const timeStr = daysLeft > 0 ? `${daysLeft}д ${h}ч` : `${h}ч ${m2}м`;
   const contribs = pool.contributors||[], topPl = pool.top_players||[];
   const history = hist.history||[];
+  const myVip = meInfo.vip_level || 0;
+  const myDonated = meInfo.total_donated_stars || 0;
+  const jackpotInfo = meInfo.jackpot;
+
+  // VIP status of current user
+  const vipTier = myVip >= 3 ? "gold" : myVip >= 2 ? "silver" : myVip >= 1 ? "bronze" : "none";
+  const vipLabel = {none:"",bronze:"🥉 Bronze",silver:"🥈 Silver",gold:"🥇 Gold"}[vipTier];
+  const nextThreshold = myDonated < 5 ? 5 : myDonated < 25 ? 25 : myDonated < 100 ? 100 : null;
+  const nextToVip = nextThreshold ? `${nextThreshold - myDonated} ⭐ до следующего VIP` : "Максимальный VIP!";
 
   panelBody.innerHTML = `
     <div class="pool-hero">
       <div class="pool-total" id="poolTotalEl">${pool.total_stars} ⭐</div>
-      <div class="pool-label">Сезонный пул · Осталось ${h}ч ${m2}м</div>
+      <div class="pool-label">Сезонный пул · Осталось ${timeStr}</div>
+      ${vipLabel ? `<div class="pool-vip-badge vip-badge vip-${myVip}" style="margin-top:8px;display:inline-flex">${vipLabel}</div>` : ""}
     </div>
+    ${jackpotInfo ? `<button id="btnClaimJackpot" class="btn btn-gold" style="width:100%;margin-bottom:12px;padding:12px;font-size:14px">🏆 Получить приз (${jackpotInfo.total_stars} ⭐)</button>` : ""}
     <div class="pool-tabs">
       <button class="tab-btn active" data-ptab="donate">💎 Донат</button>
+      <button class="tab-btn" data-ptab="vip">👑 VIP</button>
       <button class="tab-btn" data-ptab="top">🏆 Топ</button>
       <button class="tab-btn" data-ptab="history">📜 История</button>
     </div>
     <div id="ptabContent"></div>`;
+
+  // Jackpot claim button
+  panelBody.querySelector("#btnClaimJackpot")?.addEventListener("click", async () => {
+    try {
+      const r = await apiPost("/api/pool/withdrawal", {});
+      if (r.already_requested) {
+        showPopup("⏳ Заявка уже подана", "Ожидайте — администратор обработает выплату.", "vip", 4000);
+      } else {
+        showPopup("✅ Заявка подана!", "Администратор получил уведомление и скоро переведёт Stars.", "vip", 5000);
+        tg?.HapticFeedback?.notificationOccurred?.("success");
+      }
+    } catch(err) {
+      const msg = (err?.message)||"";
+      if (msg.includes("not_winner")) showToast("Ты не победитель этого раунда", "error");
+      else showToast("Ошибка", "error");
+    }
+  });
 
   function renderPoolTab(tab) {
     const wrap = panelBody.querySelector("#ptabContent");
@@ -1171,19 +1207,24 @@ document.getElementById("btnPool").onclick = () => openPanel("💎 Донат-п
 
     if (tab === "donate") {
       wrap.innerHTML = `
-        <div class="card card-gold" style="margin-bottom:10px">
-          <div class="bold small" style="margin-bottom:8px;color:var(--gold)">VIP ПРИВИЛЕГИИ</div>
-          <div class="muted small" style="line-height:1.7">
-            🥉 5+ ⭐ → <b style="color:#cd7f32">Bronze</b>: x1.5 монеты, дальность 2<br>
-            🥈 25+ ⭐ → <b style="color:#c0c0c0">Silver</b>: x2 монеты + эксклюзивные стили<br>
-            🥇 100+ ⭐ → <b style="color:#ffd700">Gold</b>: x3 монеты, дальность 3, бейдж 👑
+        <div class="vip-progress-card">
+          <div class="row" style="margin-bottom:6px">
+            <div class="bold small">Мои взносы: <span class="gold">${myDonated} ⭐</span></div>
+            <div class="muted small">${nextToVip}</div>
+          </div>
+          <div class="progress-bar-wrap">
+            <div class="progress-bar-fill gold" style="width:${Math.min(100, myDonated/100*100)}%"></div>
           </div>
         </div>
-        <div class="bold small" style="margin-bottom:8px;color:var(--muted)">БЫСТРЫЙ ДОНАТ ⭐</div>
+        <div class="bold small" style="margin-bottom:8px;color:var(--muted)">БЫСТРЫЙ ВЗНОС В ПУЛ</div>
         <div class="donate-btns">
           ${[1,5,10,25,50,100].map(s=>`<button class="donate-amount-btn" data-stars="${s}">${s} ⭐</button>`).join("")}
         </div>
         <div id="donateMsg" style="text-align:center;min-height:18px;font-size:12px;color:var(--muted);margin-bottom:12px"></div>
+        <div class="muted small" style="text-align:center;margin-bottom:14px;line-height:1.6">
+          Победитель (🥇 топ-1 по очкам) забирает <b>весь пул</b>.<br>
+          Чем больше взнос — тем выше VIP статус и бонусы в игре.
+        </div>
         ${contribs.length ? `<div class="bold small" style="margin-bottom:8px;color:var(--muted)">ТОП ВКЛАДЧИКОВ</div><div id="contribs"></div>` : ""}`;
 
       wrap.querySelectorAll(".donate-amount-btn").forEach(btn => {
@@ -1192,23 +1233,24 @@ document.getElementById("btnPool").onclick = () => openPanel("💎 Донат-п
           const msgEl = wrap.querySelector("#donateMsg");
           msgEl.textContent = "Создаём счёт...";
           try {
-            if (tg && tg.openInvoice) {
+            if (tg?.openInvoice) {
               const inv = await apiGet(`/api/pool/create_invoice?stars=${stars}`);
               msgEl.textContent = "Ожидаем оплату...";
               tg.openInvoice(inv.invoice_link, (status) => {
                 if (status === "paid") {
-                  msgEl.innerHTML = `<span style="color:var(--green)">✓ Оплачено! Пул обновится через несколько секунд.</span>`;
+                  msgEl.innerHTML = `<span style="color:var(--green)">✓ ${stars} ⭐ зачислено! Спасибо!</span>`;
                   setTimeout(fetchPoolTicker, 3000);
                   showToast(`+${stars} ⭐ в пул!`, "loot");
+                  tg?.HapticFeedback?.notificationOccurred?.("success");
                 } else {
                   msgEl.innerHTML = `<span style="color:var(--muted)">Отменено</span>`;
                 }
               });
             } else {
-              msgEl.innerHTML = `<span style="color:var(--muted)">Используй /donate_${stars} в боте</span>`;
+              msgEl.innerHTML = `<span style="color:var(--muted)">Используй <b>/donate_${stars}</b> в боте</span>`;
             }
           } catch {
-            msgEl.innerHTML = `<span style="color:var(--muted)">Используй /donate_${stars} в боте</span>`;
+            msgEl.innerHTML = `<span style="color:var(--muted)">Используй <b>/donate_${stars}</b> в боте</span>`;
           }
         };
       });
@@ -1216,17 +1258,56 @@ document.getElementById("btnPool").onclick = () => openPanel("💎 Донат-п
       const cWrap = wrap.querySelector("#contribs");
       if (cWrap) {
         contribs.forEach((c,i) => {
-          const d = document.createElement("div"); d.className="card";
-          d.innerHTML=`<div class="row"><div class="row-start"><div class="rank-badge ${i<3?`rank-${i+1}`:"rank-n"}">${i+1}</div><div class="bold small">${c.display_name}</div></div><div class="col" style="text-align:right"><div class="gold bold">${c.stars} ⭐</div><div class="muted" style="font-size:10px">${c.pct||0}% от пула</div></div></div>`;
+          const isMe = c.user_id === meInfo.id;
+          const d = document.createElement("div");
+          d.className = "card" + (isMe ? " card-me" : "");
+          d.innerHTML=`<div class="row"><div class="row-start"><div class="rank-badge ${i<3?`rank-${i+1}`:"rank-n"}">${i+1}</div><div class="bold small">${c.display_name}${isMe?" <span style='color:var(--accent);font-size:10px'>ВЫ</span>":""}</div></div><div class="col" style="text-align:right"><div class="gold bold">${c.stars} ⭐</div><div class="muted" style="font-size:10px">${c.pct||0}% пула</div></div></div>`;
           cWrap.appendChild(d);
         });
       }
+
+    } else if (tab === "vip") {
+      const vipData = [
+        { level: 0, name: "Обычный",   icon: "👤", stars: "0",    coinMult: "×1",   range: 1, extra: "—",                         color: "var(--muted)" },
+        { level: 1, name: "Bronze",    icon: "🥉", stars: "5+",   coinMult: "×1.5", range: 2, extra: "+8 монет/⭐",               color: "#cd7f32" },
+        { level: 2, name: "Silver",    icon: "🥈", stars: "25+",  coinMult: "×2",   range: 2, extra: "+12 монет/⭐, VIP-стили",   color: "#c0c0c0" },
+        { level: 3, name: "Gold",      icon: "🥇", stars: "100+", coinMult: "×3",   range: 3, extra: "+20 монет/⭐, VIP-рамки, спавн у центра, бейдж 👑", color: "#ffd700" },
+      ];
+      wrap.innerHTML = `
+        <div class="muted small" style="text-align:center;margin-bottom:12px">
+          Твои взносы за всё время: <b style="color:var(--gold)">${myDonated} ⭐</b>
+        </div>`;
+      vipData.forEach(v => {
+        const isCurrent = v.level === myVip;
+        const d = document.createElement("div");
+        d.className = "card" + (isCurrent ? "" : "");
+        d.style.cssText = isCurrent
+          ? `border-color:${v.color};background:${v.color}18;`
+          : "opacity:0.7;";
+        d.innerHTML = `
+          <div class="row">
+            <div class="row-start">
+              <div style="font-size:22px;width:36px;text-align:center">${v.icon}</div>
+              <div class="col">
+                <div class="bold small" style="color:${v.color}">${v.name} ${isCurrent?"<span style='font-size:10px;color:var(--accent)'>← ВЫ</span>":""}</div>
+                <div class="muted" style="font-size:10px">${v.stars} ⭐ суммарно</div>
+              </div>
+            </div>
+            <div class="col" style="text-align:right;gap:2px">
+              <div class="bold small" style="color:${v.color}">${v.coinMult} монеты</div>
+              <div class="muted" style="font-size:10px">дальность ${v.range}</div>
+            </div>
+          </div>
+          <div style="margin-top:6px;font-size:11px;color:var(--muted)">${v.extra}</div>`;
+        wrap.appendChild(d);
+      });
+
     } else if (tab === "top") {
       wrap.innerHTML = "";
       if (!topPl.length) { wrap.innerHTML=`<div class="muted" style="text-align:center;padding:16px">Нет игроков</div>`; return; }
       topPl.forEach((p,i) => {
         const d=document.createElement("div"); d.className="card"+(i===0?" card-gold":"");
-        const isMe = p.user_id === me.id;
+        const isMe = p.user_id === meInfo.id;
         if (isMe) d.style.borderColor="rgba(76,201,240,0.4)";
         // Score gap to leader
         const leader = topPl[0];

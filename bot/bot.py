@@ -8,6 +8,8 @@ import httpx
 from aiogram import Bot, Dispatcher, F
 from aiogram.filters import Command
 from aiogram.types import (
+    InlineKeyboardButton,
+    InlineKeyboardMarkup,
     KeyboardButton,
     LabeledPrice,
     Message,
@@ -23,6 +25,8 @@ if str(PROJECT_ROOT) not in sys.path:
 from backend.settings import settings  # noqa: E402
 from backend.db import SessionLocal  # noqa: E402
 from backend.game import add_donation, ensure_user, finish_pool  # noqa: E402
+from backend.models import DonationRound, DonationRoundStatus, WithdrawalRequest  # noqa: E402
+from sqlalchemy import select  # noqa: E402
 
 DONATE_AMOUNTS = [1, 5, 10, 25, 50, 100]
 API_BASE = settings.webapp_url.replace("/webapp/", "").rstrip("/")
@@ -182,7 +186,103 @@ async def successful_payment(msg: Message) -> None:
             db.close()
 
 
-# ── Admin /admin_finish ────────────────────────────────────────────────────────
+# ── Admin commands ────────────────────────────────────────────────────────────
+
+async def admin_pay(msg: Message, bot: Bot) -> None:
+    """Mark a withdrawal request as paid and notify the winner."""
+    admin_ids = {settings.admin_tg_id} if settings.admin_tg_id else set()
+    if msg.from_user.id not in admin_ids:
+        await msg.answer("❌ Нет прав.")
+        return
+
+    parts = (msg.text or "").split()
+    if len(parts) < 2 or not parts[1].isdigit():
+        await msg.answer(
+            "❌ Укажи номер раунда: <code>/admin_pay 3</code>",
+            parse_mode="HTML",
+        )
+        return
+
+    round_id = int(parts[1])
+    db = SessionLocal()
+    try:
+        wr = db.execute(
+            select(WithdrawalRequest).where(WithdrawalRequest.round_id == round_id)
+        ).scalar_one_or_none()
+        if not wr:
+            await msg.answer(f"❌ Заявки на вывод для раунда #{round_id} нет.")
+            return
+        if wr.status == "paid":
+            await msg.answer(f"ℹ️ Раунд #{round_id} уже помечен как выплаченный.")
+            return
+
+        from datetime import datetime
+        wr.status = "paid"
+        wr.paid_at = datetime.utcnow()
+        db.commit()
+
+        await msg.answer(
+            f"✅ Раунд #{round_id} помечен как выплаченный.\n"
+            f"Уведомляю победителя (TG ID: <code>{wr.winner_tg_id}</code>)...",
+            parse_mode="HTML",
+        )
+
+        if wr.winner_tg_id:
+            try:
+                await bot.send_message(
+                    chat_id=wr.winner_tg_id,
+                    text=(
+                        f"✅ <b>Выплата произведена!</b>\n\n"
+                        f"Раунд <b>#{round_id}</b> · <b>{wr.total_stars} ⭐</b> отправлено.\n\n"
+                        f"Проверь входящие переводы в Telegram (раздел «Stars»).\n"
+                        f"Спасибо за игру — до встречи в новом сезоне! 🎮"
+                    ),
+                    parse_mode="HTML",
+                    reply_markup=InlineKeyboardMarkup(inline_keyboard=[[
+                        InlineKeyboardButton(
+                            text="🎮 Играть снова",
+                            web_app=WebAppInfo(url=settings.webapp_url),
+                        )
+                    ]]),
+                )
+            except Exception:
+                await msg.answer("⚠️ Не удалось уведомить победителя — возможно, не запускал бота.")
+    finally:
+        db.close()
+
+
+async def admin_withdrawals(msg: Message) -> None:
+    """Show pending withdrawal requests."""
+    admin_ids = {settings.admin_tg_id} if settings.admin_tg_id else set()
+    if msg.from_user.id not in admin_ids:
+        await msg.answer("❌ Нет прав.")
+        return
+
+    db = SessionLocal()
+    try:
+        requests = db.execute(
+            select(WithdrawalRequest)
+            .where(WithdrawalRequest.status == "pending")
+            .order_by(WithdrawalRequest.id.desc())
+            .limit(10)
+        ).scalars().all()
+
+        if not requests:
+            await msg.answer("✅ Нет ожидающих заявок на вывод.")
+            return
+
+        lines = ["📋 <b>Ожидающие заявки на вывод:</b>\n"]
+        for wr in requests:
+            lines.append(
+                f"• Раунд <b>#{wr.round_id}</b> — <b>{wr.total_stars} ⭐</b>\n"
+                f"  TG ID: <code>{wr.winner_tg_id}</code>\n"
+                f"  Запрошено: {wr.requested_at.strftime('%d.%m.%Y %H:%M')}\n"
+                f"  Подтвердить: <code>/admin_pay {wr.round_id}</code>\n"
+            )
+        await msg.answer("\n".join(lines), parse_mode="HTML")
+    finally:
+        db.close()
+
 
 async def admin_finish(msg: Message, bot: Bot) -> None:
     admin_ids = {settings.admin_tg_id} if settings.admin_tg_id else set()
@@ -241,6 +341,8 @@ async def run() -> None:
     dp.message.register(cmd_start, F.text == "🎮 Играть")
     dp.message.register(donate_menu, F.text == "💎 Донат в пул")
     dp.message.register(admin_finish, Command("admin_finish"))
+    dp.message.register(admin_pay, Command("admin_pay"))
+    dp.message.register(admin_withdrawals, Command("admin_withdrawals"))
 
     for amt in DONATE_AMOUNTS:
         _amt = amt
