@@ -12,6 +12,7 @@ from aiogram.types import (
     InlineKeyboardMarkup,
     KeyboardButton,
     LabeledPrice,
+    MenuButtonWebApp,
     Message,
     PreCheckoutQuery,
     ReplyKeyboardMarkup,
@@ -358,6 +359,19 @@ async def admin_finish(msg: Message, bot: Bot) -> None:
 async def run() -> None:
     bot = Bot(token=settings.bot_token)
     dp = Dispatcher()
+
+    # Set the menu button (bottom-left in chat) — most reliable way to open Mini App
+    # with proper initData on all platforms including Telegram Desktop.
+    try:
+        await bot.set_chat_menu_button(
+            menu_button=MenuButtonWebApp(
+                text="🎮 Играть",
+                web_app=WebAppInfo(url=settings.webapp_url),
+            )
+        )
+    except Exception as exc:
+        import logging
+        logging.getLogger(__name__).warning("Could not set menu button: %s", exc)
 
     dp.message.register(cmd_start, Command("start"))
     dp.message.register(profile, F.text == "👤 Профиль")

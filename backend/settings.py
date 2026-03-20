@@ -10,13 +10,14 @@ class Settings(BaseSettings):
     model_config = SettingsConfigDict(env_file=".env", env_file_encoding="utf-8")
 
     bot_token: str = "CHANGE_ME"
-    webapp_url: str = "http://localhost:8000/webapp/"
+    # Default points to the Render deployment; override via WEBAPP_URL env var for local dev.
+    webapp_url: str = "https://pixel-field-backend.onrender.com/webapp/"
 
     @model_validator(mode="after")
     def _auto_webapp_url(self) -> "Settings":
-        """On Render, RENDER_EXTERNAL_URL is injected automatically.
-        Use it so the bot button points to the live URL without any manual config."""
-        if self.webapp_url == "http://localhost:8000/webapp/":
+        """If WEBAPP_URL is the generic default, prefer RENDER_EXTERNAL_URL if available."""
+        default = "https://pixel-field-backend.onrender.com/webapp/"
+        if self.webapp_url == default:
             render_host = os.environ.get("RENDER_EXTERNAL_URL", "").rstrip("/")
             if render_host:
                 self.webapp_url = render_host + "/webapp/"
