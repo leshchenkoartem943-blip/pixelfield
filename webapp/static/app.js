@@ -17,9 +17,12 @@ const popupTitle = document.getElementById("popupTitle");
 const popupBody  = document.getElementById("popupBody");
 
 const INITDATA = tg?.initData || "";
+const IS_LOCAL = location.hostname === "localhost" || location.hostname === "127.0.0.1";
 const headers  = INITDATA
   ? { "X-TG-INITDATA": INITDATA }
-  : { "X-ADMIN-SECRET": "change_me" };
+  : IS_LOCAL
+    ? { "X-ADMIN-SECRET": "change_me" }
+    : {};
 
 const API_BASE = (window.__API_BASE__ || "").replace(/\/$/, "");
 
@@ -1500,6 +1503,13 @@ document.getElementById("btnWar")?.addEventListener("click", () => openPanel("�
 
 // ── Init ──────────────────────────────────────────────────────────────────────
 async function init() {
+  if (!INITDATA && !IS_LOCAL) {
+    if (loadingEl) {
+      loadingEl.querySelector(".loading-text").textContent = "Открой игру через Telegram бота";
+      loadingEl.querySelector(".spinner").style.display = "none";
+    }
+    return;
+  }
   const d = await apiGet("/api/me");
   meData = d; coins = d.coins; score = d.score;
   me = { ...d.pos, id: d.id };

@@ -17,7 +17,7 @@ services:
           name: pixel-field-db
           property: connectionString
       - key: ADMIN_SECRET
-        value: change_me
+        value: pf_admin_xK9mQ2vR
       - key: TELEGRAM_BOT_TOKEN_FOR_WEBAPP_HASH
         sync: false
       - key: BOT_TOKEN
