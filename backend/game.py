@@ -4,8 +4,10 @@ import hashlib
 import hmac
 import math
 import random
+import threading
 import time
 import colorsys
+from collections import defaultdict, deque
 from dataclasses import dataclass
 from datetime import date, datetime, timedelta, timezone
 from urllib.parse import parse_qsl
@@ -78,6 +80,48 @@ def in_arena(x: int, y: int) -> bool:
 def distance_to_center(x: int, y: int) -> float:
     cx, cy = map_center()
     return math.sqrt((x - cx) ** 2 + (y - cy) ** 2)
+
+
+# ── Zone system ───────────────────────────────────────────────────────────────
+# Zone 1 = outermost/spawn edge (easiest), Zone 5 = center (hardest)
+ZONE_HARDNESS   = {1: 1,  2: 3,  3: 5,  4: 10, 5: 20}
+ZONE_REWARD_MULT = {1: 1,  2: 2,  3: 4,  4: 8,  5: 15}
+# Approximate radii as fractions of arena_radius for frontend display
+ZONE_THRESHOLDS = [0.80, 0.55, 0.30, 0.15]  # boundaries between zones 1/2, 2/3, 3/4, 4/5
+
+
+def tile_zone(x: int, y: int) -> int:
+    """Return zone 1-5. Zone 1=edge (easiest), Zone 5=center (hardest)."""
+    r = settings.arena_radius_tiles
+    if r == 0:
+        return 1
+    pct = distance_to_center(x, y) / r
+    if pct > ZONE_THRESHOLDS[0]: return 1
+    if pct > ZONE_THRESHOLDS[1]: return 2
+    if pct > ZONE_THRESHOLDS[2]: return 3
+    if pct > ZONE_THRESHOLDS[3]: return 4
+    return 5
+
+
+# ── Anti-autoclicker rate limiter ─────────────────────────────────────────────
+_rate_lock = threading.Lock()
+_user_action_times: dict[int, deque] = defaultdict(lambda: deque(maxlen=40))
+
+MAX_ACTIONS_PER_WINDOW = 20  # max clicks
+RATE_WINDOW_SEC = 5.0        # per N seconds
+
+
+def check_rate_limit(user_id: int) -> bool:
+    """Return True if action allowed, False if rate-limited (autoclicker guard)."""
+    now = time.monotonic()
+    with _rate_lock:
+        dq = _user_action_times[user_id]
+        while dq and now - dq[0] > RATE_WINDOW_SEC:
+            dq.popleft()
+        if len(dq) >= MAX_ACTIONS_PER_WINDOW:
+            return False
+        dq.append(now)
+        return True
 
 
 def loot_chance_for_position(x: int, y: int) -> float:
@@ -555,6 +599,8 @@ def paint_tile(db: Session, user: User, x: int, y: int, color: str) -> dict:
     stats = effective_stats(db, user)
     if not can_act(user.last_paint_at, settings.paint_cooldown_ms, stats.speed_multiplier):
         raise ValueError("paint_cooldown")
+    if not check_rate_limit(user.id):
+        raise ValueError("rate_limited")
 
     x = clamp(x, 0, settings.map_width - 1)
     y = clamp(y, 0, settings.map_height - 1)
@@ -562,6 +608,9 @@ def paint_tile(db: Session, user: User, x: int, y: int, color: str) -> dict:
         raise ValueError("out_of_arena")
     if manhattan(user.pos_x, user.pos_y, x, y) > stats.paint_range:
         raise ValueError("too_far")
+
+    zone = tile_zone(x, y)
+    zone_h = ZONE_HARDNESS[zone]  # base hits required to capture in this zone
 
     style = current_tile_style(user)
     existing = db.execute(select(Tile).where(and_(Tile.x == x, Tile.y == y))).scalar_one_or_none()
@@ -574,9 +623,12 @@ def paint_tile(db: Session, user: User, x: int, y: int, color: str) -> dict:
         old_owner_id = existing.owner_user_id
         defender = db.execute(select(User).where(User.id == old_owner_id)).scalar_one_or_none()
 
-        if existing.defense > 0:
-            existing.defense -= 1
-            existing.attack_hits = (existing.attack_hits or 0) + 1
+        # Total hits needed = zone hardness + defender's reinforcement bonus
+        total_needed = zone_h + existing.defense
+        current_hits = (existing.attack_hits or 0) + 1
+
+        if current_hits < total_needed:
+            existing.attack_hits = current_hits
             db.add(TileAttackEvent(
                 attacker_id=user.id, defender_id=old_owner_id,
                 x=x, y=y, result="hit",
@@ -586,9 +638,10 @@ def paint_tile(db: Session, user: User, x: int, y: int, color: str) -> dict:
             db.flush()
             return {
                 "new": False, "defended": True,
-                "defense_left": existing.defense,
-                "attack_hits": existing.attack_hits,
-                "max_defense": existing.defense + 1 + existing.attack_hits,
+                "defense_left": total_needed - current_hits,
+                "attack_hits": current_hits,
+                "max_defense": total_needed,
+                "zone": zone, "zone_h": zone_h,
                 "coins": 0, "score": 0, "loot": False,
                 "level": user.level,
                 "new_achievements": [], "completed_quests": [],
@@ -665,9 +718,10 @@ def paint_tile(db: Session, user: User, x: int, y: int, color: str) -> dict:
     # ── Event bonus ───────────────────────────────────────────────────────────
     event_mult = _check_event_tile(db, user, x, y)
     streak_mult = _streak_coin_bonus(user)
+    zone_mult = ZONE_REWARD_MULT[zone]
 
-    reward_coins = max(1, int(settings.base_tile_reward_coins * stats.coin_multiplier * event_mult * streak_mult))
-    reward_score = settings.base_tile_reward_score * event_mult
+    reward_coins = max(1, int(settings.base_tile_reward_coins * stats.coin_multiplier * event_mult * streak_mult * zone_mult))
+    reward_score = max(1, int(settings.base_tile_reward_score * event_mult * zone_mult))
     user.coins += reward_coins
     user.score += reward_score
     user.tiles_painted += 1
@@ -695,6 +749,7 @@ def paint_tile(db: Session, user: User, x: int, y: int, color: str) -> dict:
     return {
         "new": True, "defended": False,
         "defense": 0,
+        "zone": zone, "zone_h": zone_h,
         "coins": reward_coins,
         "score": reward_score,
         "loot": got_loot,

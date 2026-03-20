@@ -204,14 +204,18 @@ def api_state(x0: int, y0: int, x1: int, y1: int,
         borders = {r.id: (r.border_style or "none") for r in border_rows}
 
     db.commit()
+    from backend.game import tile_zone, ZONE_HARDNESS, ZONE_THRESHOLDS
     return {
         "map": {"w": settings.map_width, "h": settings.map_height,
                 "shape": getattr(settings, "arena_shape", "circle"),
-                "r": settings.arena_radius_tiles},
+                "r": settings.arena_radius_tiles,
+                "zone_thresholds": ZONE_THRESHOLDS,
+                "zone_hardness": ZONE_HARDNESS},
         "me": {"x": user.pos_x, "y": user.pos_y, "id": user.id},
         "tiles": [
             {"x": t.x, "y": t.y, "c": t.color, "o": t.owner_user_id,
-             "d": t.defense, "h": t.attack_hits or 0}
+             "d": t.defense, "h": t.attack_hits or 0,
+             "z": tile_zone(t.x, t.y)}
             for t in tiles
         ],
         "players": [
@@ -267,7 +271,11 @@ def api_paint(body: PaintIn, user: User = Depends(get_current_user), db: Session
         res = paint_tile(db, user, body.x, body.y, body.color)
         db.commit()
     except ValueError as e:
-        db.rollback(); raise HTTPException(400, str(e))
+        db.rollback()
+        err = str(e)
+        if err == "rate_limited":
+            raise HTTPException(429, "rate_limited")
+        raise HTTPException(400, err)
     return {"ok": True, "result": res, "pos": {"x": user.pos_x, "y": user.pos_y},
             "coins": user.coins, "score": user.score, "vip_level": user.vip_level}
 

@@ -27,6 +27,11 @@ const headers  = INITDATA
 const API_BASE = (window.__API_BASE__ || "").replace(/\/$/, "");
 
 let mapW = 150, mapH = 150, arenaR = 74, arenaShape = "circle";
+// Zone system (synced from server)
+let zoneThresholds = [0.80, 0.55, 0.30, 0.15]; // fraction of arenaR
+let zoneHardness   = {1:1, 2:3, 3:5, 4:10, 5:20};
+const ZONE_COLORS  = ["#22c55e","#eab308","#f97316","#ef4444","#a855f7"]; // z1..z5
+const ZONE_LABELS  = ["×1","×3","×5","×10","×20"];
 let me = { x: 75, y: 75, id: 0 };
 let meData = {};
 let coins = 0, score = 0;
@@ -502,6 +507,55 @@ function hsvToHex(h,s,v){
   return `#${Math.max(0,Math.min(255,Math.round(r*255))).toString(16).padStart(2,"0")}${Math.max(0,Math.min(255,Math.round(g*255))).toString(16).padStart(2,"0")}${Math.max(0,Math.min(255,Math.round(b*255))).toString(16).padStart(2,"0")}`;
 }
 
+function tileZone(tx, ty) {
+  const cx = mapW / 2, cy = mapH / 2;
+  const d = Math.hypot(tx - cx, ty - cy);
+  const pct = arenaR > 0 ? d / arenaR : 1;
+  if (pct > zoneThresholds[0]) return 1;
+  if (pct > zoneThresholds[1]) return 2;
+  if (pct > zoneThresholds[2]) return 3;
+  if (pct > zoneThresholds[3]) return 4;
+  return 5;
+}
+
+function drawZoneRings() {
+  if (arenaShape !== "circle") return;
+  const cx = mapW / 2, cy = mapH / 2;
+  const { sx: scx, sy: scy } = tile2screen(cx, cy);
+  ctx.save();
+  ctx.setLineDash([4, 6]);
+  ctx.lineWidth = 1;
+  // Draw from innermost to outermost (skip zone 1 border = arena edge)
+  for (let i = 0; i < zoneThresholds.length; i++) {
+    const frac = zoneThresholds[i];
+    const pxR = frac * arenaR * zoom;
+    ctx.strokeStyle = ZONE_COLORS[i] + "55"; // semi-transparent
+    ctx.beginPath();
+    ctx.arc(scx + zoom * 0.5, scy + zoom * 0.5, pxR, 0, Math.PI * 2);
+    ctx.stroke();
+    // Label on the ring
+    if (zoom >= 8) {
+      ctx.setLineDash([]);
+      ctx.font = `bold ${Math.max(9, zoom * 0.55)}px ui-sans-serif,system-ui,sans-serif`;
+      ctx.fillStyle = ZONE_COLORS[i] + "cc";
+      ctx.textAlign = "center";
+      ctx.shadowColor = "rgba(0,0,0,0.9)"; ctx.shadowBlur = 4;
+      ctx.fillText(ZONE_LABELS[i], scx + zoom * 0.5, scy + zoom * 0.5 - pxR - 4);
+      ctx.setLineDash([4, 6]);
+    }
+  }
+  ctx.setLineDash([]);
+  ctx.restore();
+}
+
+function drawZoneTint(sx, sy, size, tx, ty) {
+  const z = tileZone(tx, ty);
+  if (z === 1) return;
+  const alpha = [0, 0, 0.06, 0.10, 0.14, 0.18][z];
+  ctx.fillStyle = ZONE_COLORS[z - 1] + Math.round(alpha * 255).toString(16).padStart(2,"0");
+  ctx.fillRect(sx, sy, size, size);
+}
+
 function drawStyledTile(sx, sy, size, styleStr, x, y, timeSec) {
   const { style, color } = parseStyle(styleStr);
   switch (style) {
@@ -636,6 +690,9 @@ function render(timeNow = performance.now()) {
   ctx.fillStyle = grd;
   ctx.beginPath(); ctx.arc(acx, acy, arPx, 0, Math.PI*2); ctx.fill();
 
+  // Zone rings
+  drawZoneRings();
+
   // Build event set for fast lookup
   const eventSet = new Set(activeEvents.map(e => key(e.x, e.y)));
 
@@ -648,30 +705,42 @@ function render(timeNow = performance.now()) {
       if (it) {
         drawStyledTile(sx, sy, zoom, it.c || "#44ccff", x, y, timeSec);
         drawDefenseOverlay(sx, sy, zoom, it.d);
-        // Attack hit bar (red progress bar at bottom)
-        if (it.h > 0 && it.d >= 0) {
-          const maxH = it.d + it.h;
-          const frac = maxH > 0 ? it.h / (maxH + 1) : 0;
-          const bh = Math.max(2, zoom * 0.12);
+        // Zone-aware attack progress bar
+        if (it.h > 0) {
+          const z = it.z || tileZone(x, y);
+          const zh = zoneHardness[z] || 1;
+          const totalNeeded = zh + (it.d || 0);
+          const frac = Math.min(1, it.h / totalNeeded);
+          const bh = Math.max(2, zoom * 0.14);
           ctx.save();
-          ctx.globalAlpha = 0.85;
+          ctx.globalAlpha = 0.9;
           ctx.fillStyle = "#1a0000";
           ctx.fillRect(sx, sy + zoom - bh, zoom, bh);
-          ctx.fillStyle = "#ff3b30";
+          // Color transitions green→yellow→red based on progress
+          const hue = Math.round((1 - frac) * 120);
+          ctx.fillStyle = `hsl(${hue},90%,55%)`;
           ctx.fillRect(sx, sy + zoom - bh, zoom * frac, bh);
+          // Remaining hits label
+          if (zoom >= 14) {
+            const left = totalNeeded - it.h;
+            ctx.font = `bold ${Math.max(7, zoom * 0.4)}px ui-sans-serif`;
+            ctx.fillStyle = "#fff";
+            ctx.textAlign = "center";
+            ctx.shadowColor = "rgba(0,0,0,0.9)"; ctx.shadowBlur = 3;
+            ctx.fillText(`${it.h}/${totalNeeded}`, sx + zoom * 0.5, sy + zoom - bh - 2);
+          }
           ctx.restore();
           // Crack lines on heavily hit tiles
-          if (it.h >= 1 && zoom >= 10) {
+          if (zoom >= 10) {
             ctx.save();
-            ctx.globalAlpha = 0.25 + it.h * 0.12;
-            ctx.strokeStyle = "#ff0000";
+            ctx.globalAlpha = 0.15 + frac * 0.4;
+            ctx.strokeStyle = "#ff4422";
             ctx.lineWidth = 0.8;
-            const cx2 = sx + zoom * 0.5, cy2 = sy + zoom * 0.5;
-            for (let ci = 0; ci < it.h; ci++) {
-              const ang = (ci / Math.max(1, it.h)) * Math.PI + 0.4;
-              ctx.beginPath();
-              ctx.moveTo(cx2, cy2);
-              ctx.lineTo(cx2 + Math.cos(ang) * zoom * 0.55, cy2 + Math.sin(ang) * zoom * 0.55);
+            const cxc = sx + zoom * 0.5, cyc = sy + zoom * 0.5;
+            for (let ci = 0; ci < Math.min(it.h, 6); ci++) {
+              const ang = (ci / Math.max(1, Math.min(it.h, 6))) * Math.PI + 0.4;
+              ctx.beginPath(); ctx.moveTo(cxc, cyc);
+              ctx.lineTo(cxc + Math.cos(ang)*zoom*0.55, cyc + Math.sin(ang)*zoom*0.55);
               ctx.stroke();
             }
             ctx.restore();
@@ -681,8 +750,22 @@ function render(timeNow = performance.now()) {
         const brd = borders[String(it.o)];
         if (brd && brd !== "none") drawBorderOverlay(sx, sy, zoom, brd, timeSec);
       } else {
+        // Empty tile with zone tint
         ctx.fillStyle = (x+y)%23===0 ? "#0a1422" : "#080d18";
         ctx.fillRect(sx, sy, zoom, zoom);
+        drawZoneTint(sx, sy, zoom, x, y);
+        // Zone multiplier label on empty tiles when zoomed in
+        if (zoom >= 18) {
+          const z = tileZone(x, y);
+          if (z > 1) {
+            ctx.save();
+            ctx.font = `${Math.round(zoom * 0.35)}px ui-sans-serif`;
+            ctx.fillStyle = ZONE_COLORS[z-1] + "88";
+            ctx.textAlign = "center";
+            ctx.fillText(ZONE_LABELS[z-1], sx + zoom*0.5, sy + zoom*0.62);
+            ctx.restore();
+          }
+        }
       }
       if (eventSet.has(key(x, y))) drawEventOverlay(sx, sy, zoom, timeSec);
     }
@@ -802,6 +885,8 @@ async function fetchState() {
   mapW = data.map.w; mapH = data.map.h;
   arenaR = data.map.r || arenaR;
   arenaShape = data.map.shape || "circle";
+  if (data.map.zone_thresholds) zoneThresholds = data.map.zone_thresholds;
+  if (data.map.zone_hardness)   zoneHardness   = data.map.zone_hardness;
   me = { x: data.me.x, y: data.me.y, id: data.me.id };
   for (const it of data.tiles) tiles.set(key(it.x,it.y), {c:it.c, o:it.o, d:it.d||0, h:it.h||0});
   players.clear();
@@ -888,6 +973,10 @@ canvas.addEventListener("click", async e => {
 
     if(res.loot) showToast("📦 Лут!","loot");
     if(res.leveled) showToast(`⭐ Уровень ${res.level}!`,"level");
+    if(res.zone && res.zone > 1) {
+      const zLabel = ["","","×2","×4","×8","×15"][res.zone]||"";
+      showToast(`${ZONE_COLORS[res.zone-1]?'':''}⬡ +${res.coins} ${zLabel}зона ${res.zone}`,"loot");
+    }
     if(res.event_mult && res.event_mult>1) {
       showToast(`⚡ x${res.event_mult} ИВЕНТ!`,"loot");
       showPopup(`⚡ Мини-событие x${res.event_mult}!`,`+${res.coins} монет!`,"event",2500);
@@ -925,6 +1014,7 @@ canvas.addEventListener("click", async e => {
       try{const m=await apiPost("/api/game/move",{dx:sx,dy:sy});me={...m.pos,id:me.id};updateStats();await fetchState();render();return;}catch{}
     }
     if(msg.includes("move_cooldown")) showToast("кулдаун","error");
+    else if(msg.includes("rate_limited")) showToast("⛔ Слишком быстро!","error");
     else if(msg.includes("out_of_arena")) showToast("за пределами","error");
     else if(msg.includes("too_far")) showToast("далеко","error");
     updateStats();
